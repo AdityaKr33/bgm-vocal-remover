@@ -8,7 +8,7 @@ your browser once and runs on your own graphics card from then on.
 
 ```bash
 npm start     # http://127.0.0.1:5173/
-npm test      # 54 tests, no dependencies
+npm test      # 62 tests, no dependencies
 ```
 
 Needs [Node.js](https://nodejs.org) 18 or newer to run it locally, and Chrome, Edge or Brave on a
@@ -42,8 +42,8 @@ and plays it back. The only things fetched from elsewhere are the model file and
 and neither request says anything about what you are listening to. See [privacy.html](privacy.html).
 
 The headers in [`security-headers.mjs`](security-headers.mjs) tell the browser to run nothing but this
-site's own code, the AI runtime, and nothing else at all: no inline scripts, no frames, no other origins.
-`npm test` fails if [`netlify.toml`](netlify.toml) ever stops matching them.
+site's own code, the AI runtime and Google's ad loader: no inline scripts, no frames but ads, no other
+origins. `npm test` fails if `vercel.json` or `netlify.toml` ever stops matching them.
 
 ## How it is built
 
@@ -96,15 +96,19 @@ The headers live in one place, `security-headers.mjs`. After changing them, run
 
 ### Paying for itself
 
-The footer links to GitHub Sponsors and Ko-fi — replace both with your own pages, or delete them.
-`index.html` also has two empty `.ad-slot` boxes, one after *How it works* and one at the foot. They
-are `hidden` and take no space, so turning them on shifts nothing. To use them: get approved by an ad
-network, add its script and frame hosts to `CONTENT_SECURITY_POLICY` in `security-headers.mjs`, copy
-the same value into `netlify.toml` (a test fails if they drift apart), then put the ad unit inside a
-slot and remove its `hidden`.
+Google AdSense runs on the front page, the guide and the privacy page: its tag sits in each `<head>`,
+`ads.txt` names the publisher, and `security-headers.mjs` allows Google's ad hosts. With **Auto ads**
+switched on in AdSense, Google places the ads itself. The engine window and the 404 page carry no tag,
+because AdSense forbids ads on pages with no content of their own.
 
-Ads never go inside the remover itself, and they receive no audio — they cannot, because the audio
-never leaves the browser.
+For a fixed ad unit instead, `index.html` has two empty `.ad-slot` boxes, one after *How it works* and
+one at the foot. They are `hidden` and take no space: put the unit inside one and remove its `hidden`.
+An ad unit's own `<script>(adsbygoogle = …).push({})</script>` line is inline, which the policy refuses,
+so call it from a file in `src/` instead.
+
+If ads stop appearing, the browser console names the host the policy blocked: add it to the AdSense
+lists in `security-headers.mjs` and run `node tools/host-config.mjs`. The footer also links to GitHub
+Sponsors. Ads receive no audio: they cannot, because the audio never leaves the browser.
 
 ## Credits and licence
 

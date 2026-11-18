@@ -47,11 +47,28 @@ test('nothing the site runs talks to Spotify', () => {
   }
 });
 
-test('the front page needs no account and loads only its own script', () => {
+// The AdSense tag, exactly as Google issues it for this publisher. ads.txt must name the same publisher.
+const PUBLISHER = 'pub-4372918574861739';
+const AD_TAG = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-${PUBLISHER}`;
+const scriptsOf = (page) => [...read(page).matchAll(/<script[^>]+src="([^"]+)"/g)].map((m) => m[1]);
+
+test('the front page needs no account and loads only its own scripts and the ad tag', () => {
   const page = read('index.html');
-  const scripts = [...page.matchAll(/<script[^>]+src="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(scripts, ['src/crash.js', 'src/studio.js']);
+  assert.deepEqual(scriptsOf('index.html'), [AD_TAG, 'src/crash.js', 'src/studio.js']);
   assert.ok(!/Client ID|log in|sign in/i.test(page), 'the front page asks someone to log in');
+});
+
+test('the ad tag is on the reading pages, and never on the engine window or the error page', () => {
+  // AdSense's rules forbid ads on pages with no content of their own (error pages, a window that only plays sound).
+  for (const page of ['index.html', 'guide.html', 'privacy.html']) {
+    const tags = scriptsOf(page).filter((src) => src.includes('googlesyndication'));
+    assert.deepEqual(tags, [AD_TAG], `${page} should carry the AdSense tag once`);
+    assert.match(read(page), /adsbygoogle\.js\?client=[^"]+"\s+crossorigin="anonymous"/, `${page}: the tag lost its crossorigin attribute`);
+  }
+  for (const page of ['engine.html', '404.html']) {
+    assert.ok(!read(page).includes('googlesyndication'), `${page} must not show ads`);
+  }
+  assert.equal(read('ads.txt').trim(), `google.com, ${PUBLISHER}, DIRECT, f08c47fec0942fa0`, 'ads.txt names another publisher');
 });
 
 test('a page that shows the crash screen also has something that takes it down', () => {
@@ -73,10 +90,16 @@ test('a page that shows the crash screen also has something that takes it down',
 
 test('the policy allows no Spotify host and nothing dangerous', () => {
   for (const host of ['spotify', 'scdn']) assert.ok(!CONTENT_SECURITY_POLICY.includes(host), `the policy still allows ${host}`);
-  const scriptSrc = CONTENT_SECURITY_POLICY.match(/script-src ([^;]+)/)[1];
+  const scriptSrc = CONTENT_SECURITY_POLICY.match(/script-src ([^;]+)/)[1].split(' ');
   assert.ok(!scriptSrc.includes("'unsafe-inline'"), 'inline scripts would be allowed');
   assert.ok(!scriptSrc.includes("'unsafe-eval'"), 'eval would be allowed');
-  assert.ok(!scriptSrc.includes('*'), 'a wildcard script source');
+  for (const source of scriptSrc) {
+    if (source === "'self'" || source === "'wasm-unsafe-eval'") continue;
+    // Every other script source names one https host, or one Google ad domain's subdomains. A bare "*" or a
+    // scheme on its own ("https:", "data:") would let a script come from anywhere.
+    assert.match(source, /^https:\/\/(?:\*\.)?(?:[a-z0-9-]+\.)+[a-z]+(?:\/[\w./@-]*)?$/, `script source ${source} is too broad`);
+    if (source.includes('*')) assert.match(source, /^https:\/\/\*\.(?:googlesyndication\.com|adtrafficquality\.google)$/, `wildcard script source ${source}`);
+  }
   assert.match(CONTENT_SECURITY_POLICY, /frame-ancestors 'none'/, 'another site could frame this one');
   assert.match(CONTENT_SECURITY_POLICY, /object-src 'none'/);
 });
@@ -104,7 +127,7 @@ test("the project's own files are kept out of the Vercel deployment", () => {
   for (const path of ['serve.mjs', 'security-headers.mjs', 'netlify.toml', 'package.json', 'README.md', 'tests/', 'tools/']) {
     assert.ok(ignored.includes(path), `.vercelignore does not keep out ${path}`);
   }
-  for (const page of ['index.html', 'guide.html', 'privacy.html', 'engine.html', '404.html', 'sw.js', 'src/', 'robots.txt', 'sitemap.xml']) {
+  for (const page of ['index.html', 'guide.html', 'privacy.html', 'engine.html', '404.html', 'sw.js', 'src/', 'robots.txt', 'sitemap.xml', 'ads.txt']) {
     assert.ok(!ignored.includes(page), `.vercelignore would hide ${page}, which is part of the site`);
   }
 });
@@ -244,7 +267,7 @@ const ask = (method, path, headers = {}) => new Promise((resolve, reject) => {
 });
 
 test('the server hands out the public files, with the headers on every one', async () => {
-  for (const path of ['/', '/index.html', '/guide.html', '/privacy.html', '/robots.txt', '/sitemap.xml', '/src/studio.js', '/src/theme.css']) {
+  for (const path of ['/', '/index.html', '/guide.html', '/privacy.html', '/robots.txt', '/sitemap.xml', '/ads.txt', '/src/studio.js', '/src/theme.css']) {
     const res = await ask('GET', path);
     assert.equal(res.status, 200, `GET ${path}`);
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) {

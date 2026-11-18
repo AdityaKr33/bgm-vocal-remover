@@ -28,7 +28,7 @@ const TYPES = {
   '.onnx': 'application/octet-stream',
 };
 // Only the app's own files are served — never tests, tools or anything outside this folder.
-const PUBLIC = /^\/(?:index\.html|engine\.html|guide\.html|privacy\.html|404\.html|robots\.txt|sitemap\.xml|sw\.js|manifest\.webmanifest|share\.jpg|src\/[\w.-]+\.(?:js|css)|icons\/[\w.-]+\.png|fonts\/[\w.-]+\.woff2|models\/[\w.-]+\.onnx)?$/;
+const PUBLIC = /^\/(?:index\.html|engine\.html|guide\.html|privacy\.html|404\.html|robots\.txt|sitemap\.xml|ads\.txt|google[0-9a-f]+\.html|sw\.js|manifest\.webmanifest|share\.jpg|src\/[\w.-]+\.(?:js|css)|icons\/[\w.-]+\.png|fonts\/[\w.-]+\.woff2|models\/[\w.-]+\.onnx)?$/;
 
 // The AI vocal-removal model: Ultimate Vocal Remover's MDX-Net "Inst HQ 5", fetched once on request.
 const MODEL = {
