@@ -109,6 +109,13 @@ test('the dark tool panel sets a light text colour for the controls it holds', (
 
 /* ---------- the files hang together ---------- */
 
+test('nothing published here points at the Spotify project', () => {
+  // That repository is the private half of the project. A page anyone can find should not send them to it.
+  for (const page of ['index.html', 'privacy.html', 'guide.html', 'README.md']) {
+    assert.ok(!read(page).includes('github.com/AdityaKr33/bgm-mode'), `${page} links to the Spotify project's repository`);
+  }
+});
+
 test('the pages reference only files that exist', () => {
   for (const page of PAGES) {
     for (const [, ref] of read(page).matchAll(/(?:src|href)="([^"]+)"/g)) {
