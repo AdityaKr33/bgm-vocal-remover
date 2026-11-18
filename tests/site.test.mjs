@@ -116,6 +116,20 @@ test('nothing published here points at the Spotify project', () => {
   }
 });
 
+test('no published link is a placeholder pointing at some service front page', () => {
+  // "https://ko-fi.com/" with no account after it reaches Ko-fi's own homepage, which tells a visitor nothing
+  // and makes the site look unfinished. Every outbound link has to go somewhere that is actually ours.
+  const SERVICES = ['ko-fi.com', 'buymeacoffee.com', 'patreon.com', 'paypal.me', 'github.com/sponsors'];
+  for (const page of ['index.html', 'privacy.html']) {
+    for (const [, href] of read(page).matchAll(/href="(https:\/\/[^"]+)"/g)) {
+      const service = SERVICES.find((name) => href.includes(name));
+      if (!service) continue;
+      const after = href.split(service)[1].replace(/^\//, '');
+      assert.ok(after.length > 0, `${page} links to ${href}, which is ${service}'s own page, not yours`);
+    }
+  }
+});
+
 test('the pages reference only files that exist', () => {
   for (const page of PAGES) {
     for (const [, ref] of read(page).matchAll(/(?:src|href)="([^"]+)"/g)) {
