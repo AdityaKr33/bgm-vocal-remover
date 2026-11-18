@@ -1,0 +1,1856 @@
+<!doctype html>
+<!-- The guide, as a page of the site. Written from the project's own code; see README.md for how it is rebuilt. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Inside BGM Mode: how a browser vocal remover works</title>
+<meta name="description" content="How BGM Mode removes vocals in the browser: the AI model on WebGPU, streaming STFT, the real-time audio pipeline, the album wall and the security layer. Sixteen diagrams, every number taken from the code.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<!-- SET YOUR DOMAIN: run `node tools/set-domain.mjs https://your-site.example` once after deploying. -->
+<link rel="canonical" href="https://bgm-mode.example/guide">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://bgm-mode.example/guide">
+<meta property="og:title" content="Inside BGM Mode: how a browser vocal remover works">
+<meta property="og:description" content="The AI model on WebGPU, streaming STFT, the real-time audio pipeline and the security layer, in sixteen diagrams.">
+<meta property="og:image" content="share.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="icons/icon-32.png" sizes="32x32">
+<meta name="theme-color" content="#f4ebdb">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Inside BGM Mode: how a browser vocal remover works",
+  "description": "How an AI vocal remover runs in a browser on WebGPU: streaming STFT, the real-time audio pipeline, frame pacing and the security layer.",
+  "author": { "@type": "Person", "name": "Aditya Kumar" },
+  "datePublished": "2026-11-18",
+  "about": ["WebGPU", "ONNX Runtime Web", "Web Audio API", "Digital signal processing", "Progressive web apps"],
+  "isAccessibleForFree": true
+}
+</script>
+<style>
+/* Layout concept: liner notes on a record sleeve. A track list on the left, long-form text in one centre column,
+   and every diagram a dark espresso slab, the way the app's own panels are. */
+:root {
+  --bg: #f4ebdb;
+  --bg-2: #ebdfca;
+  --fg: #221911;
+  --muted: #66553f;
+  --rule: #d3c3a8;
+  --gold: #7a5200;
+  --link: #7a5200;
+  --gold-fill: #e5ae3d;
+  --panel: #221911;
+  --panel-2: #33261a;
+  --panel-fg: #f4ebdb;
+  --panel-muted: #bba98e;
+  --panel-rule: #5a4630;
+  --panel-line: #9b8767;
+  --panel-gold: #4a3718;
+  --c-a: #e5ae3d;
+  --c-b: #f4ebdb;
+  --c-c: #9ec5a0;
+  --c-d: #e48f74;
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-body: 'Figtree', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17110b; --bg-2: #211810; --fg: #f1e6d2; --muted: #b5a387; --rule: #3a2c1e; --gold: #e5ae3d; --link: #e5ae3d;
+    --panel: #2a2016; --panel-2: #3a2b1c; --panel-rule: #6e5539;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #17110b; --bg-2: #211810; --fg: #f1e6d2; --muted: #b5a387; --rule: #3a2c1e; --gold: #e5ae3d; --link: #e5ae3d;
+  --panel: #2a2016; --panel-2: #3a2b1c; --panel-rule: #6e5539;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 17px/1.65 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0;
+  -webkit-text-size-adjust: 100%;
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+a { color: var(--link); text-underline-offset: 3px; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--gold-fill); outline-offset: 3px; border-radius: 3px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+code { background: var(--bg-2); border: 1px solid var(--rule); padding: 0.05em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+
+.shell { max-width: 1140px; margin: 0 auto; padding-block: 40px 96px; }
+.masthead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 28px; padding-bottom: 36px; border-bottom: 1px solid var(--rule); margin-bottom: 40px; }
+.masthead-text { flex: 1 1 420px; min-width: 0; }
+.eyebrow { font: 500 12px/1.4 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); margin: 0 0 14px; }
+h1 { font: 600 clamp(2.7rem, 7vw, 4.6rem)/1 var(--font-display); letter-spacing: -0.025em; margin: 0 0 20px; text-wrap: balance; font-variation-settings: 'opsz' 144; }
+.lede { font-size: 1.2rem; line-height: 1.55; max-width: 36em; margin: 0 0 16px; text-wrap: pretty; }
+.meta { color: var(--muted); font-size: 0.9rem; margin: 0; }
+.disc {
+  flex: 0 0 auto; width: min(210px, 44vw); aspect-ratio: 1; border-radius: 50%;
+  background:
+    radial-gradient(circle, var(--bg) 0 2.4%, transparent 2.8%),
+    radial-gradient(circle, var(--gold-fill) 0 18%, var(--panel) 18.5% 20.5%, transparent 21%),
+    repeating-radial-gradient(circle, var(--panel) 0 2px, var(--panel-2) 2px 4px);
+  box-shadow: 0 0 0 1px var(--panel-line), 0 14px 30px -14px rgb(34 25 17 / 0.5);
+}
+
+.page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 36px; }
+@media (min-width: 1020px) { .page { grid-template-columns: 224px minmax(0, 780px); justify-content: center; gap: 64px; } }
+.toc { font-size: 0.95rem; }
+@media (min-width: 1020px) { .toc { position: sticky; top: 24px; align-self: start; max-height: calc(100vh - 48px); overflow-y: auto; padding-right: 8px; } }
+.toc h2 { font: 500 12px/1.4 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; counter-reset: track; }
+.toc li { counter-increment: track; }
+.toc a { display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 4px; padding: 5px 0; color: var(--fg); text-decoration: none; border-bottom: 1px solid transparent; }
+.toc a::before { content: counter(track, decimal-leading-zero); font: 500 12px/1.9 var(--font-mono); color: var(--gold); }
+.toc a:hover { border-bottom-color: var(--rule); }
+@media (max-width: 1019px) { .toc ol { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); column-gap: 24px; } }
+
+main { min-width: 0; counter-reset: fig; }
+section.track { padding-top: 12px; margin-bottom: 72px; scroll-margin-top: 16px; }
+h2 { font: 600 clamp(1.8rem, 4vw, 2.35rem)/1.12 var(--font-display); letter-spacing: -0.015em; margin: 0 0 18px; text-wrap: balance; }
+h2 .eyebrow { display: block; margin: 0 0 8px; letter-spacing: 0.12em; }
+h3 { font: 600 1.3rem/1.25 var(--font-display); margin: 40px 0 10px; text-wrap: balance; }
+h4 { font: 600 0.8rem/1.4 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 28px 0 8px; }
+p { margin: 0 0 1em; max-width: 68ch; text-wrap: pretty; }
+ul, ol.steps { max-width: 68ch; padding-left: 1.3em; margin: 0 0 1.1em; }
+li { margin-bottom: 0.4em; }
+li::marker { color: var(--gold); }
+strong { font-weight: 600; }
+
+dl.glance { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 24px; margin: 0 0 12px; padding: 18px 0; border-block: 1px solid var(--rule); font-size: 0.97rem; max-width: 68ch; }
+dl.glance dt { color: var(--muted); font: 500 12px/1.9 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+dl.glance dd { margin: 0; }
+@media (max-width: 560px) { dl.glance { grid-template-columns: 1fr; gap: 0; } dl.glance dd { margin-bottom: 10px; } }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 1.1em; padding: 0; list-style: none; max-width: none; }
+.chips li { margin: 0; font-size: 0.88rem; padding: 2px 10px; border: 1px solid var(--rule); border-radius: 999px; background: var(--bg-2); }
+.chips.mono-chips li { font: 400 0.8rem/1.6 var(--font-mono); }
+
+.note { border: 1px solid var(--rule); background: var(--bg-2); padding: 14px 18px; border-radius: 6px; margin: 0 0 1.2em; max-width: 68ch; font-size: 0.97rem; }
+.note b { font: 500 12px/1.4 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); display: block; margin-bottom: 4px; }
+.note p:last-child { margin-bottom: 0; }
+
+pre.formula { font: 400 0.9rem/1.5 var(--font-mono); background: var(--bg-2); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 16px; margin: 0 0 1.3em; overflow-x: auto; max-width: 68ch; }
+
+.tablewrap { overflow-x: auto; margin: 0 0 1.4em; border-top: 2px solid var(--fg); }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; font-variant-numeric: tabular-nums; }
+caption { text-align: left; font: 500 12px/1.4 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 10px 0 8px; caption-side: top; }
+th { text-align: left; font: 500 12px/1.4 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 8px 14px 8px 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+td { padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+td:first-child { font-weight: 500; }
+td.num, th.num { text-align: right; padding-right: 0; padding-left: 14px; }
+
+figure.fig { counter-increment: fig; margin: 28px 0 36px; background: var(--panel); color: var(--panel-fg); border: 1px solid var(--panel-rule); border-radius: 10px; padding: 18px 18px 14px; }
+figure.fig .scroll { overflow-x: auto; }
+figure.fig svg { display: block; width: 100%; min-width: 680px; height: auto; color: var(--panel-fg); }
+figure.fig figcaption { font-size: 0.92rem; line-height: 1.5; color: var(--panel-muted); border-top: 1px solid var(--panel-rule); margin-top: 12px; padding-top: 10px; max-width: 70ch; }
+figure.fig figcaption::before { content: "Figure " counter(fig) ". "; color: var(--panel-fg); font-weight: 600; }
+figure.fig .swipe { display: none; font: 500 11px/1.4 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--panel-muted); margin: 0 0 8px; }
+@media (max-width: 720px) { figure.fig .swipe { display: block; } figure.fig { padding: 14px 12px 12px; } }
+
+/* what the diagrams are made of */
+svg { font-family: var(--font-body); font-size: 13px; fill: currentColor; }
+svg .ts { font-size: 11.5px; }
+svg .tb { font-weight: 600; }
+svg .tm { fill: var(--panel-muted); }
+svg .tg { fill: var(--c-a); }
+svg .dark { fill: var(--panel); font-weight: 600; }
+svg .mono { font-family: var(--font-mono); font-size: 11.5px; }
+svg .c-af { fill: var(--c-a); } svg .c-bf { fill: var(--c-b); } svg .c-cf { fill: var(--c-c); } svg .c-df { fill: var(--c-d); }
+svg .bx { fill: var(--panel-2); stroke: var(--panel-line); stroke-width: 1.4; }
+svg .bx.hi { fill: var(--panel-gold); stroke: var(--c-a); }
+svg .bx.dash { stroke-dasharray: 5 4; }
+svg .lane { fill: none; stroke: var(--panel-rule); stroke-width: 1.4; stroke-dasharray: 5 5; }
+svg .band { fill: rgb(255 255 255 / 0.035); stroke: var(--panel-rule); stroke-width: 1; }
+svg .ln { fill: none; stroke: var(--panel-line); stroke-width: 1.4; }
+svg .faint { fill: none; stroke: var(--panel-rule); stroke-width: 1; }
+svg .zero { fill: none; stroke: var(--panel-line); stroke-width: 1.4; }
+svg .ar { fill: none; stroke: var(--panel-fg); stroke-width: 1.6; }
+svg .ar.g { stroke: var(--c-a); }
+svg .ar.d { stroke-dasharray: 5 4; }
+svg .mk { fill: var(--panel-fg); }
+svg .mkg { fill: var(--c-a); }
+svg .life { fill: none; stroke: var(--panel-rule); stroke-width: 1.4; stroke-dasharray: 3 5; }
+svg .bar { fill: var(--c-a); } svg .bar2 { fill: var(--c-b); } svg .bar3 { fill: var(--c-c); } svg .bar4 { fill: var(--c-d); }
+svg .barm { fill: var(--panel-rule); }
+svg .barx { fill: none; stroke: var(--panel-line); stroke-dasharray: 4 3; stroke-width: 1.4; }
+svg .mark { fill: none; stroke: var(--c-a); stroke-width: 1.4; stroke-dasharray: 4 4; }
+svg .ctx { fill: var(--panel-2); stroke: var(--panel-line); stroke-width: 1.4; }
+svg .look { fill: var(--panel-rule); stroke: var(--panel-line); stroke-width: 1.4; }
+svg .out { fill: var(--c-a); stroke: var(--c-a); stroke-width: 1.4; }
+svg .curve { fill: none; stroke-width: 2.4; stroke-linejoin: round; }
+svg .curve.c-a { stroke: var(--c-a); } svg .curve.c-b { stroke: var(--c-b); } svg .curve.c-c { stroke: var(--c-c); } svg .curve.c-d { stroke: var(--c-d); }
+svg .tile { fill: var(--panel-2); stroke: var(--panel-line); stroke-width: 1; }
+svg .tile.shadow { fill: #0e0a06; stroke: none; }
+svg .tile.lifted { fill: var(--panel-gold); stroke: var(--c-a); stroke-width: 1.6; }
+svg .rec { fill: var(--panel-2); stroke: var(--panel-line); stroke-width: 1.5; }
+svg .groove { fill: none; stroke: var(--c-a); stroke-width: 1.2; stroke-dasharray: 3 5; }
+svg .label { fill: var(--c-a); }
+svg .arm { stroke-width: 5; stroke-linecap: round; fill: none; }
+svg .arm.rest { stroke: var(--panel-muted); opacity: 0.55; }
+svg .arm.start { stroke: var(--c-a); }
+svg .arm.end { stroke: var(--c-b); }
+svg .pivot { fill: var(--panel-fg); }
+svg .dot.rest { fill: var(--panel-muted); } svg .dot.start { fill: var(--c-a); } svg .dot.end { fill: var(--c-b); }
+svg .layer { fill: none; stroke: var(--panel-line); stroke-width: 1.4; }
+svg .layer.core { stroke: var(--c-a); fill: var(--panel-gold); }
+
+footer.end { border-top: 1px solid var(--rule); padding-top: 24px; color: var(--muted); font-size: 0.9rem; }
+footer.end p { max-width: 70ch; }
+
+/* On paper: white page, brown ink, light diagrams, one column, nothing split across pages */
+@page { size: A4; margin: 14mm 12mm 16mm; }
+@media print {
+  :root:root:root {
+    --bg: #ffffff; --bg-2: #f6efe2; --fg: #221911; --muted: #5b4a35; --rule: #d9cdb7; --gold: #7a5200; --link: #7a5200;
+    --panel: #ffffff; --panel-2: #f6efe2; --panel-fg: #221911; --panel-muted: #5b4a35; --panel-rule: #d4c7ae; --panel-line: #7a6a50; --panel-gold: #f6e2b0;
+    --c-a: #b07d12; --c-b: #3a2b1c; --c-c: #4d8a57; --c-d: #c2563a;
+    color-scheme: light;
+  }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  html { scroll-behavior: auto; }
+  body { font-size: 10.5pt; line-height: 1.5; padding-left: 0; padding-right: 0; }
+  .shell { padding-block: 0; max-width: none; }
+  .masthead { padding-bottom: 14px; margin-bottom: 18px; gap: 16px; }
+  .disc { width: 120px; box-shadow: none; }
+  .page { display: block; }
+  .toc { position: static; max-height: none; overflow: visible; margin-bottom: 20px; padding-right: 0; }
+  .toc ol { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 18px; }
+  section.track { margin-bottom: 26px; padding-top: 0; }
+  h2, h3, h4, caption { break-after: avoid; page-break-after: avoid; }
+  h2 { font-size: 20pt; }
+  h3 { margin-top: 20px; }
+  p, li { orphans: 3; widows: 3; }
+  figure.fig, table, pre.formula, .note, dl.glance, .tablewrap { break-inside: avoid; page-break-inside: avoid; }
+  tr { break-inside: avoid; }
+  figure.fig { padding: 10px 10px 6px; margin: 14px 0 18px; border-color: #cbbd9f; }
+  figure.fig .scroll { overflow: visible; }
+  figure.fig svg { min-width: 0; }
+  figure.fig .swipe { display: none; }
+  figure.fig svg .tile.shadow { fill: #6b5a43; }
+  .tablewrap { overflow: visible; }
+  a { color: inherit; text-decoration: none; }
+}
+</style>
+<style>
+/* The site's own copies, so the page loads nothing from other servers (fonts/OFL.txt, fonts/OFL-Figtree.txt). */
+@font-face { font-family: Fraunces; font-weight: 100 900; font-display: swap; src: url("fonts/fraunces-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: Fraunces; font-weight: 100 900; font-display: swap; src: url("fonts/fraunces-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: Figtree; font-weight: 300 900; font-display: swap; src: url("fonts/figtree-latin.woff2") format("woff2"); }
+.guide-back { max-width: 1140px; margin: 0 auto; padding: 18px max(16px, env(safe-area-inset-left, 0px)) 0; font: 500 15px/1 Figtree, system-ui, sans-serif; }
+.guide-back a { color: #7a5200; text-decoration: none; }
+.guide-back a:hover { text-decoration: underline; text-underline-offset: 3px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .guide-back a { color: #e5ae3d; } }
+:root[data-theme="dark"] .guide-back a { color: #e5ae3d; }
+@media print { .guide-back { display: none; } }
+</style>
+</head>
+<body>
+<p class="guide-back"><a href="./">&#8592; Back to the vocal remover</a></p>
+<div class="shell">
+  <header class="masthead">
+    <div class="masthead-text">
+      <p class="eyebrow">A guide to the project</p>
+      <h1>Inside BGM Mode</h1>
+      <p class="lede">How a web page takes the singer out of a Spotify song: what runs where, which numbers matter, and why each part is built the way it is. Every figure and number comes from the project's code.</p>
+      <p class="meta">Written from the code at commit 2159509 on 18 November 2026. All 125 tests pass.</p>
+    </div>
+    <div class="disc" aria-hidden="true"></div>
+  </header>
+
+  <div class="page">
+    <nav class="toc" aria-label="Track list">
+      <h2>Track list</h2>
+      <ol>
+        <li><a href="#idea">The idea</a></li>
+        <li><a href="#tour">A tour of the website</a></li>
+        <li><a href="#login">Signing in with Spotify</a></li>
+        <li><a href="#instrumentals">Official instrumentals</a></li>
+        <li><a href="#live">The live remover</a></li>
+        <li><a href="#ai">The AI vocal remover</a></li>
+        <li><a href="#fast">The Fast remover</a></li>
+        <li><a href="#sound">Shaping the sound</a></li>
+        <li><a href="#wall">The album wall</a></li>
+        <li><a href="#turntable">The turntable</a></li>
+        <li><a href="#offline">Offline and error screens</a></li>
+        <li><a href="#security">Security</a></li>
+        <li><a href="#tests">Tests</a></li>
+        <li><a href="#limits">Limits and open points</a></li>
+        <li><a href="#reference">Reference</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <section class="track" id="idea">
+        <h2><span class="eyebrow">Track 01</span>The idea</h2>
+        <p>BGM Mode plays Spotify songs without the singing, so you can study or work to music and none of the lyrics. It is a web app that also installs as a phone or desktop app (a PWA). It is plain JavaScript with no build step and no npm packages.</p>
+        <p>For each song it takes one of three routes.</p>
+        <ul>
+          <li><strong>Official instrumental.</strong> Many songs have an official instrumental on Spotify. BGM Mode searches for it and switches to it at the same second of the song.</li>
+          <li><strong>AI remover.</strong> When there is no official version, a neural network (UVR MDX-Net “Inst HQ 5”) runs on your graphics card and separates the voice from the music while the song plays. The project's README reports the voice dropping to about 2 % of its level (−33 dB) with the music rebuilt at 21.5 dB fidelity.</li>
+          <li><strong>Fast remover.</strong> A lighter method that needs no graphics card. It cancels what sits dead centre in the stereo picture and keeps drum hits. The README reports about −5 dB of voice overall and 10.5 dB fidelity.</li>
+        </ul>
+        <p>The same two live removers can clean the sound of any other browser tab, such as YouTube Music, with no Spotify account. That is <strong>Any tab</strong> mode.</p>
+
+        <figure class="fig" data-n="1">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 330" role="img" aria-label="Every song first looks for an official instrumental. If one is found BGM Mode switches to it. If not, or for any music tab, the live remover removes the vocals with AI or the Fast remover.">
+              <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <rect class="bx" x="10" y="124" width="120" height="60" rx="8"/>
+              <text class="tb" x="70" y="150" text-anchor="middle">A song starts</text>
+              <text class="ts tm" x="70" y="168" text-anchor="middle">in Spotify</text>
+              <path class="ar" d="M130 154 H190" marker-end="url(#a1)"/>
+
+              <rect class="bx" x="190" y="104" width="170" height="100" rx="8"/>
+              <text class="tb" x="275" y="144" text-anchor="middle">Look for the official</text>
+              <text class="tb" x="275" y="162" text-anchor="middle">instrumental</text>
+              <text class="ts tm" x="275" y="186" text-anchor="middle">Spotify search</text>
+
+              <path class="ar g" d="M275 104 V58 H424" marker-end="url(#g1)"/>
+              <text class="ts tg" x="350" y="50" text-anchor="middle">found</text>
+              <rect class="bx hi" x="424" y="30" width="190" height="56" rx="8"/>
+              <text class="tb" x="519" y="54" text-anchor="middle">Switch to it</text>
+              <text class="ts tm" x="519" y="72" text-anchor="middle">same second, same playlist</text>
+
+              <path class="ar" d="M275 204 V246 H424" marker-end="url(#a1)"/>
+              <text class="ts" x="350" y="238" text-anchor="middle">none found</text>
+              <rect class="bx" x="424" y="214" width="190" height="72" rx="8"/>
+              <text class="tb" x="519" y="240" text-anchor="middle">Remove the vocals live</text>
+              <text class="ts tm" x="519" y="258" text-anchor="middle">the default fallback</text>
+              <text class="ts tm" x="519" y="274" text-anchor="middle">in the engine window</text>
+
+              <rect class="bx" x="10" y="244" width="150" height="66" rx="8"/>
+              <text class="tb" x="85" y="270" text-anchor="middle">Any music tab</text>
+              <text class="ts tm" x="85" y="288" text-anchor="middle">no Spotify needed</text>
+              <path class="ar" d="M160 277 H424" marker-end="url(#a1)"/>
+              <text class="ts" x="292" y="270" text-anchor="middle">its sound</text>
+
+              <path class="ar" d="M614 236 H632 V218 H650" marker-end="url(#a1)"/>
+              <path class="ar" d="M614 264 H632 V284 H650" marker-end="url(#a1)"/>
+              <rect class="bx" x="650" y="196" width="100" height="44" rx="8"/>
+              <text class="tb" x="700" y="214" text-anchor="middle">AI</text>
+              <text class="ts tm" x="700" y="230" text-anchor="middle">your GPU</text>
+              <rect class="bx" x="650" y="262" width="100" height="44" rx="8"/>
+              <text class="tb" x="700" y="280" text-anchor="middle">Fast</text>
+              <text class="ts tm" x="700" y="296" text-anchor="middle">no GPU needed</text>
+            </svg>
+          </div>
+          <figcaption>Every song takes the top route when its official instrumental exists. Otherwise the live remover handles it with AI or the Fast remover. Music in any other tab goes straight to the live remover.</figcaption>
+        </figure>
+
+        <h3>What you need</h3>
+        <dl class="glance">
+          <dt>Spotify</dt><dd>Premium, to play songs inside the page. Your own Spotify developer app, whose Client ID you paste into BGM Mode to log in.</dd>
+          <dt>Browser</dt><dd>Chrome, Edge or Brave on a computer for everything. Safari and Firefox work for login, playback and official instrumentals.</dd>
+          <dt>Graphics</dt><dd>A GPU with WebGPU for the AI remover. Without it the AI option is switched off and Fast is used.</dd>
+          <dt>Running it</dt><dd><code>npm start</code> serves it at 127.0.0.1:5173 (Node 18 or newer). The repository also carries a <code>netlify.toml</code> for a static host.</dd>
+          <dt>Packages</dt><dd>None. In the browser it loads ONNX Runtime Web 1.31.1 from jsDelivr and Spotify's player script from Spotify.</dd>
+        </dl>
+
+        <div class="tablewrap">
+          <table>
+            <caption>What each browser can do</caption>
+            <thead><tr><th>Browser</th><th>Log in, play, official instrumentals</th><th>Live remover (AI, Fast, Any tab, Sound)</th></tr></thead>
+            <tbody>
+              <tr><td>Chrome, Edge, Brave, on a computer</td><td>Yes</td><td>Yes</td></tr>
+              <tr><td>Firefox</td><td>Yes</td><td>No: it cannot share a tab's sound</td></tr>
+              <tr><td>Safari</td><td>Yes</td><td>No: it cannot share a tab's sound</td></tr>
+              <tr><td>Phones and tablets</td><td>The player is meant for computers</td><td>No: they cannot share a tab's sound</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note">
+          <b>Why it stays personal</b>
+          <p>Spotify's developer terms do not allow publishing an app that alters their audio. Development Mode also limits an app to its owner plus up to five people the owner adds. YouTube Music offers no way for another site to read or control it, and its terms forbid separating the audio of what its player plays. So BGM Mode connects to it only through links and through Any tab mode.</p>
+        </div>
+      </section>
+
+      <section class="track" id="tour">
+        <h2><span class="eyebrow">Track 02</span>A tour of the website</h2>
+        <p>The project has four pages. <code>index.html</code> is the landing page. <code>app.html</code> is the player. <code>engine.html</code> is the small window the live remover plays through, and <code>404.html</code> is the error page. Visitors open the first two themselves. The third opens on its own when the live remover starts.</p>
+
+        <figure class="fig" data-n="2">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 372" role="img" aria-label="The landing page's eight sections from top to bottom. The hero buttons and the footer buttons both lead to the player page, and a saved login skips the landing page entirely.">
+              <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <text class="tb" x="20" y="20">index.html, the landing page</text>
+              <rect class="bx hi" x="20" y="34" width="300" height="34" rx="6"/>
+              <text class="mono tg" x="32" y="55">hero</text><text x="104" y="56">Two buttons and a player</text>
+              <rect class="bx" x="20" y="76" width="300" height="34" rx="6"/>
+              <text class="mono tg" x="32" y="97">#player</text><text x="104" y="98">Every song, no vocals</text>
+              <rect class="bx" x="20" y="118" width="300" height="34" rx="6"/>
+              <text class="mono tg" x="32" y="139">#anytab</text><text x="104" y="140">Any music tab, three steps</text>
+              <rect class="bx" x="20" y="160" width="300" height="34" rx="6"/>
+              <text class="mono tg" x="32" y="181">#sound</text><text x="104" y="182">Shape the sound, 12 styles</text>
+              <rect class="bx" x="20" y="202" width="300" height="34" rx="6"/>
+              <text class="mono tg" x="32" y="223">#how</text><text x="104" y="224">How the vocals come out</text>
+              <rect class="bx" x="20" y="244" width="300" height="34" rx="6"/>
+              <text class="mono tg" x="32" y="265">#ai</text><text x="104" y="266">The AI runs on your GPU</text>
+              <rect class="bx" x="20" y="286" width="300" height="34" rx="6"/>
+              <text class="mono tg" x="32" y="307">#faq</text><text x="104" y="308">Six questions</text>
+              <rect class="bx hi" x="20" y="328" width="300" height="34" rx="6"/>
+              <text class="mono tg" x="32" y="349">#contact</text><text x="104" y="350">Footer and a Made by block</text>
+
+              <rect class="bx dash" x="460" y="20" width="290" height="46" rx="8"/>
+              <text x="605" y="40" text-anchor="middle">Saved login, or back from Spotify:</text>
+              <text x="605" y="57" text-anchor="middle">straight to the player</text>
+              <path class="ar d" d="M605 66 V134" marker-end="url(#a2)"/>
+
+              <rect class="bx hi" x="460" y="134" width="290" height="120" rx="8"/>
+              <text class="tb" x="605" y="160" text-anchor="middle">app.html, the player</text>
+              <text class="ts" x="605" y="182" text-anchor="middle">Login screen, or the player itself</text>
+              <text class="ts" x="605" y="200" text-anchor="middle">Any tab sheet at app.html#tab</text>
+              <text class="ts" x="605" y="218" text-anchor="middle">Sound panel and setup guide</text>
+              <text class="ts" x="605" y="236" text-anchor="middle">Turntable, album wall, search</text>
+
+              <path class="ar" d="M320 51 H380 V160 H460" marker-end="url(#a2)"/>
+              <text class="ts" x="326" y="28">Start BGM Mode</text>
+              <text class="ts" x="326" y="42">Try it on any tab</text>
+              <path class="ar" d="M320 345 H450 V232 H460" marker-end="url(#a2)"/>
+              <text class="ts" x="326" y="338">Start BGM Mode</text>
+
+              <text class="ts tm" x="460" y="296">Behind every section: the album wall,</text>
+              <text class="ts tm" x="460" y="312">fixed in place. Covers lift on hover.</text>
+            </svg>
+          </div>
+          <figcaption>The landing page runs top to bottom in eight sections. Its two button pairs both open the player, and anyone with a saved login skips the landing page.</figcaption>
+        </figure>
+
+        <h3>The landing page, section by section</h3>
+        <div class="tablewrap">
+          <table>
+            <caption>index.html</caption>
+            <thead><tr><th>Section</th><th>Heading</th><th>What is in it</th></tr></thead>
+            <tbody>
+              <tr><td>Hero</td><td>Play any Spotify song without its vocals</td><td>Two buttons, “Start BGM Mode” and “Try it on any tab” (tagged “No account”), and a drawn player window.</td></tr>
+              <tr><td>#player</td><td>Every song you play, without its vocals</td><td>A link to the #how section, “See how it decides”.</td></tr>
+              <tr><td>#anytab</td><td>Take the vocals out of any music tab</td><td>Three steps, then “Try it on any tab”.</td></tr>
+              <tr><td>#sound</td><td>Shape the sound: bass, treble and more</td><td>Twelve style chips and a preview of the Sound panel that steps through six styles every 2.8 seconds while it is on screen.</td></tr>
+              <tr><td>#how</td><td>How BGM Mode takes the vocals out</td><td>Three chapters that stay pinned as you scroll: official instrumental, AI, any tab.</td></tr>
+              <tr><td>#ai</td><td>The AI vocal remover runs on your graphics card</td><td>A dark band: voice left about 2 % (−33 dB), music kept at 21.5 dB against 10.5 in Fast, model 56 MB, downloaded once and checked.</td></tr>
+              <tr><td>#faq</td><td>Questions</td><td>Six questions: Premium, bass and treble, browsers, whether it records your music, why it needs a Client ID, and friends (up to five). Phones show the first four.</td></tr>
+              <tr><td>#contact</td><td>Hear your playlists without the vocals</td><td>Both buttons again, four link columns (Product, Start, Help, Works with) and the Made by block with Instagram and LinkedIn links.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>On a phone (639 pixels wide or less) a bar with “Start BGM Mode” slides in at the bottom once the hero's own button has scrolled out of sight.</p>
+
+        <h3>The wall behind the page</h3>
+        <p>The landing page sits on the player's album wall: one canvas fixed behind everything, under a cream wash. It shows the covers saved from your own listening (<code>bgm.covers</code> in local storage, secure addresses only) and, until there are some, 24 record sleeves drawn by the page. Covers lift when the mouse passes over them. A click does nothing here, because only the player tells the wall what to do with a click. Section 9 explains the wall.</p>
+
+        <h3>How a returning visitor skips ahead</h3>
+        <p>A small script in the page head sends anyone with a saved login, or anyone coming back from Spotify's login screen, straight to <code>app.html</code> with the address's query kept. The landing script does the same when a Client ID is saved and automatic sign-in is still allowed.</p>
+
+        <h3>The opening</h3>
+        <p>The landing page opens with a record dropping onto the hero's player. The word “vocals” in the headline starts solid and drains to an outline, as if taken out of the song. The opening is skipped under reduced motion, in headless Chrome, and when the address carries a <code>#hash</code>. On a phone, or when the hero is already scrolled past, there is no record and the words simply rise.</p>
+
+        <figure class="fig" data-n="3">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 376" role="img" aria-label="A timeline of the opening in milliseconds. The record falls for 760 milliseconds and touches the deck. At the touch a ring grows, the window jolts, the wall starts spinning and the headline rises. The badge pops in at 1080 milliseconds and the word vocals drains to an outline from 2260 milliseconds.">
+              <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <text class="ts tm" x="12" y="36">milliseconds</text>
+              <g class="ts tm" text-anchor="middle">
+                <text x="150" y="36">0</text><text x="240.6" y="36">500</text><text x="331.3" y="36">1000</text><text x="421.9" y="36">1500</text><text x="512.5" y="36">2000</text><text x="603.1" y="36">2500</text><text x="693.8" y="36">3000</text>
+              </g>
+              <g class="faint">
+                <path d="M150 44 V322"/><path d="M240.6 44 V322"/><path d="M331.3 44 V322"/><path d="M421.9 44 V322"/><path d="M512.5 44 V322"/><path d="M603.1 44 V322"/><path d="M693.8 44 V322"/>
+              </g>
+              <path class="mark" d="M287.8 44 V322"/>
+              <text class="ts tg" x="294" y="20">the touch, 760 ms</text>
+
+              <text x="12" y="74">Record drops</text>
+              <rect class="bar" x="150" y="58" width="137.8" height="22" rx="3"/>
+              <text class="ts dark" x="218.9" y="73" text-anchor="middle">falls, 760 ms</text>
+              <rect class="bar2" x="287.8" y="58" width="47.1" height="22" rx="3"/>
+              <text class="ts tm" x="342" y="73">settles, 260 ms</text>
+
+              <text x="12" y="114">Gold ring</text>
+              <rect class="bar" x="287.8" y="98" width="199.4" height="22" rx="3"/>
+              <text class="ts dark" x="387.5" y="113" text-anchor="middle">grows to 3.6 times, 1.1 s</text>
+
+              <text x="12" y="154">Window jolt</text>
+              <rect class="bar" x="287.8" y="138" width="83.4" height="22" rx="3"/>
+              <text class="ts tm" x="377" y="153">5 px down and back, 0.46 s</text>
+
+              <text x="12" y="194">Album wall</text>
+              <rect class="barm" x="150" y="178" width="137.8" height="22" rx="3"/>
+              <text class="ts" x="218.9" y="193" text-anchor="middle">paused</text>
+              <rect class="bar3" x="287.8" y="178" width="442.2" height="22" rx="3"/>
+              <text class="ts dark" x="294" y="193">spins up from still (0.5 s), then keeps going</text>
+
+              <text x="12" y="234">Headline words</text>
+              <rect class="barx" x="287.8" y="218" width="112" height="22" rx="3"/>
+              <text class="ts" x="343.8" y="233" text-anchor="middle">rise in</text>
+              <text class="ts tm" x="406" y="233">the page's motion script runs its entrance</text>
+
+              <text x="12" y="274">Status badge</text>
+              <rect class="bar2" x="345.8" y="258" width="94.2" height="22" rx="3"/>
+              <text class="ts tm" x="446" y="273">pops in after 0.32 s, takes 0.52 s</text>
+
+              <text x="12" y="314">“vocals” hollows</text>
+              <text class="ts tm" x="553" y="313" text-anchor="end">1.5 s after the touch</text>
+              <rect class="bar4" x="559.7" y="298" width="163.1" height="22" rx="3"/>
+              <text class="ts dark" x="641.2" y="313" text-anchor="middle">drains to an outline</text>
+
+              <text class="ts tm" x="12" y="348">The opening is skipped under reduced motion, in headless Chrome, and when the address has a #hash.</text>
+              <text class="ts tm" x="12" y="364">A 2.5 s timer releases the hero if the opening never starts. The class m-enter-done is added at 1.6 s.</text>
+            </svg>
+          </div>
+          <figcaption>The record touches the deck at 760 ms. That moment starts the ring, the jolt, the wall and the headline, so one event drives everything. The dashed bar has no fixed length because the page's motion script owns it.</figcaption>
+        </figure>
+
+        <p>The record starts large and close to the viewer, falls onto the deck, touches at 760 ms, and settles over another 260 ms. The wall is paused until the touch, then spins up from still like a platter coming up to speed. A gold ring grows outward from the record to 3.6 times its size over 1.1 seconds while the whole window jolts down 5 pixels and back over 0.46 seconds. The hero's headline entrance and the badge follow the touch. The word “vocals” turns hollow 1.5 seconds later and takes 0.9 seconds to do it.</p>
+
+        <h3>The player page</h3>
+        <p><code>app.html</code> shows one of two views. With no saved login it shows the login screen, which reads “Set up once”, or “Welcome back” with the last four characters of your saved Client ID. With a login it shows the player: a search box, the now-playing desk with its turntable, the album wall behind, and the live-remover controls. The live controls show in both views, so Any tab mode works without logging in.</p>
+        <p>The setup guide is a four-step walk through creating a Spotify developer app and copying its Client ID, drawn as four tracks on a record (“Track 2 of 4”). Arrow keys move between steps and a click on the backdrop closes it. A Client ID is accepted only when it is 32 hexadecimal characters, and the guide's login button stays disabled until it is.</p>
+        <p>Search waits 350 ms after the last key, needs at least two characters, and asks Spotify for 10 results. The status badge on the desk is one of four:</p>
+        <div class="tablewrap">
+          <table>
+            <caption>The badge on the desk</caption>
+            <thead><tr><th>Badge</th><th>Shown when</th></tr></thead>
+            <tbody>
+              <tr><td>Official instrumental</td><td>the song playing is an official instrumental</td></tr>
+              <tr><td>Vocals removed by AI</td><td>the live remover runs on this tab, vocals are wanted gone, playback is local, and the AI remover is the one running</td></tr>
+              <tr><td>Vocals reduced (fast mode)</td><td>the same, with the Fast remover and a stereo recording</td></tr>
+              <tr><td>Original, with vocals</td><td>anything else</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Beside the badge, the desk says what BGM Mode found. When an official instrumental exists it offers “Play the instrumental”. When none exists it offers a YouTube Music link, a search for the title, the artists and the word “instrumental”. For a podcast episode it says BGM Mode leaves it as it is.</p>
+        <p>The live-remover line under the controls is one sentence chosen in a fixed order: why the live remover cannot run here (phone, Firefox, Safari, anything else), a blocked pop-up, idle, playing elsewhere, an instrumental playing, the AI loading, running or failing, the model still pending, a mono recording, and the Fast remover running.</p>
+        <div class="tablewrap">
+          <table>
+            <caption>Settings and their defaults (local storage key bgm.settings)</caption>
+            <thead><tr><th>Setting</th><th>Default</th></tr></thead>
+            <tbody>
+              <tr><td>Client ID</td><td>empty</td></tr>
+              <tr><td>Switch to instrumentals automatically</td><td>on</td></tr>
+              <tr><td>When there is no instrumental</td><td>live remover (the others: skip the song, play the original)</td></tr>
+              <tr><td>Live remover quality</td><td>AI</td></tr>
+              <tr><td>Vocal removal strength</td><td>100 %</td></tr>
+              <tr><td>Volume</td><td>80</td></tr>
+              <tr><td>Sound</td><td>Flat: five tone controls at 0 and Space at 100 %</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="track" id="login">
+        <h2><span class="eyebrow">Track 03</span>Signing in with Spotify</h2>
+        <p>BGM Mode logs in with the Authorization Code flow with PKCE. A page that runs in a browser cannot keep a secret, so PKCE replaces the client secret with a one-time proof that only this page knows. There is no client secret anywhere in the project.</p>
+
+        <figure class="fig" data-n="4">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 512" role="img" aria-label="The login in nine steps between the BGM Mode page, accounts.spotify.com and api.spotify.com. The page makes a verifier and a state, sends the hashed challenge to Spotify, gets a code back, swaps the code and verifier for tokens, saves them and calls the API with the access token.">
+              <defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <rect class="bx hi" x="30" y="10" width="180" height="36" rx="8"/>
+              <text class="tb" x="120" y="33" text-anchor="middle">BGM Mode page</text>
+              <rect class="bx" x="330" y="10" width="180" height="36" rx="8"/>
+              <text class="tb" x="420" y="33" text-anchor="middle">accounts.spotify.com</text>
+              <rect class="bx" x="590" y="10" width="140" height="36" rx="8"/>
+              <text class="tb" x="660" y="33" text-anchor="middle">api.spotify.com</text>
+              <path class="life" d="M120 46 V500"/><path class="life" d="M420 46 V500"/><path class="life" d="M660 46 V500"/>
+
+              <rect class="bx" x="24" y="62" width="204" height="46" rx="6"/>
+              <text x="126" y="82" text-anchor="middle">1  make a verifier + state</text>
+              <text class="ts tm" x="126" y="98" text-anchor="middle">SHA-256 of the verifier is the challenge</text>
+
+              <path class="ar" d="M120 146 H420" marker-end="url(#a4)"/>
+              <text class="ts" x="270" y="138" text-anchor="middle">2  /authorize + challenge, state, scopes</text>
+
+              <rect class="bx" x="330" y="168" width="180" height="44" rx="6"/>
+              <text x="420" y="187" text-anchor="middle">3  you approve</text>
+              <text class="ts tm" x="420" y="203" text-anchor="middle">may be skipped next time</text>
+
+              <path class="ar" d="M420 250 H120" marker-end="url(#a4)"/>
+              <text class="ts" x="270" y="242" text-anchor="middle">4  back to the page with ?code and state</text>
+
+              <rect class="bx" x="24" y="272" width="204" height="44" rx="6"/>
+              <text x="126" y="291" text-anchor="middle">5  the state must match</text>
+              <text class="ts tm" x="126" y="307" text-anchor="middle">the one saved in step 1</text>
+
+              <path class="ar" d="M120 350 H420" marker-end="url(#a4)"/>
+              <text class="ts" x="270" y="342" text-anchor="middle">6  /api/token: code + verifier</text>
+
+              <path class="ar" d="M420 394 H120" marker-end="url(#a4)"/>
+              <text class="ts" x="270" y="386" text-anchor="middle">7  access token + refresh token</text>
+
+              <rect class="bx" x="24" y="412" width="204" height="44" rx="6"/>
+              <text x="126" y="431" text-anchor="middle">8  keep the tokens</text>
+              <text class="ts tm" x="126" y="447" text-anchor="middle">local storage, key bgm.auth</text>
+
+              <path class="ar g" d="M120 484 H660" marker-end="url(#g4)"/>
+              <text class="ts tg" x="390" y="476" text-anchor="middle">9  API calls with the access token</text>
+            </svg>
+          </div>
+          <figcaption>The proof never leaves the page until step 6, and Spotify checks it against the hash it saw in step 2. An attacker who steals the code in step 4 cannot use it without the verifier.</figcaption>
+        </figure>
+
+        <h3>The steps</h3>
+        <ol class="steps">
+          <li>The page makes a <strong>verifier</strong> of 64 random characters and a <strong>state</strong> of 16, picked from letters, digits and <code>-._~</code> using the browser's secure random numbers. It saves both, with the Client ID, in session storage under <code>bgm.login</code>.</li>
+          <li>It sends you to Spotify's authorize page with the Client ID, the redirect address, the requested scopes, the state, and the <strong>challenge</strong>: the SHA-256 hash of the verifier, written in base64url without padding (method S256).</li>
+          <li>You approve. Spotify may skip this for a returning user.</li>
+          <li>Spotify sends the browser back with <code>?code</code> and <code>state</code> in the address.</li>
+          <li>The page removes the query from the address and checks that the state equals the saved one. A missing or different state shows “That Spotify login expired” and asks you to try again. Cancelling at Spotify shows “Spotify login was cancelled.” Any other error shows “Spotify login failed” with Spotify's reason.</li>
+          <li>It posts the code and the verifier to Spotify's token address.</li>
+          <li>Spotify answers with an access token, a refresh token and a lifetime.</li>
+          <li>The page stores them in local storage as <code>bgm.auth</code>, and clears the “signed out” flag. “Logged in” simply means a refresh token is present.</li>
+          <li>Every API call carries the access token.</li>
+        </ol>
+        <p>The <strong>redirect address</strong> is the app's own folder: the page's origin and path cut after the last slash, the same from either page. It must be registered in the Spotify dashboard exactly.</p>
+
+        <div class="tablewrap">
+          <table>
+            <caption>Scopes it asks for</caption>
+            <thead><tr><th>Scope</th><th>Why</th></tr></thead>
+            <tbody>
+              <tr><td>streaming</td><td>Lets the Web Playback SDK turn the page into a Spotify Connect speaker named “BGM Mode”.</td></tr>
+              <tr><td>user-read-email, user-read-private</td><td>Required along with streaming.</td></tr>
+              <tr><td>user-read-playback-state, user-modify-playback-state, user-read-currently-playing</td><td>See what plays and on which device, and queue, skip, seek and switch songs.</td></tr>
+              <tr><td>user-read-recently-played, user-top-read</td><td>The covers for the album wall.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Keeping the login alive</h3>
+        <ul>
+          <li>The access token is reused until 60 seconds before it expires. Only one refresh runs at a time per window, and if Spotify sends no new refresh token the old one is kept.</li>
+          <li>If a refresh fails but another open window has saved a newer refresh token, this window uses that one (and its access token, if more than 60 seconds remain). Spotify can rotate refresh tokens, and two windows would otherwise race each other into a logout. When the failure is a 400 or 401 and no newer token exists, the saved login is deleted.</li>
+          <li><strong>Automatic sign-in</strong> runs on load when you are logged out, a Client ID is saved, you did not log out on purpose (<code>bgm.signedOut</code>, kept in local storage), and this tab has not already tried (<code>bgm.autoSignIn</code>, kept in session storage, so a failure cannot loop).</li>
+          <li><strong>Log out</strong> stops the live remover, disconnects the player, deletes <code>bgm.auth</code> and sets <code>bgm.signedOut</code>. Your Client ID and saved covers stay. Nothing is revoked at Spotify.</li>
+        </ul>
+
+        <h3>Talking to Spotify's API</h3>
+        <p>Every call goes through one small wrapper for <code>https://api.spotify.com/v1</code>. With no token it fails with a “not connected” 401, which the page shows as the login screen. A 401 triggers one forced refresh and one retry. A 429 with a <code>Retry-After</code> of 5 seconds or less waits that long (a missing, zero or invalid value counts as 1 second); a longer one fails at once. A 5xx waits 600 ms. A call makes at most three tries in all, and the refresh after a 401 uses up one of the retries. An empty or non-JSON reply becomes null.</p>
+
+        <h3>The in-app player</h3>
+        <p>The page loads Spotify's player script once from <code>sdk.scdn.co</code> and registers a device called “BGM Mode” at your saved volume (80 by default). Its errors become plain sentences:</p>
+        <div class="tablewrap">
+          <table>
+            <caption>What each player error says</caption>
+            <thead><tr><th>Error</th><th>Message</th></tr></thead>
+            <tbody>
+              <tr><td>initialization</td><td>This browser can't play Spotify here. Use Chrome, Edge, Firefox or Safari on a computer, with protected content (DRM) allowed.</td></tr>
+              <tr><td>authentication</td><td>Spotify rejected the login for playback. Log out and log in again.</td></tr>
+              <tr><td>account</td><td>Playing music inside BGM Mode needs Spotify Premium.</td></tr>
+              <tr><td>playback</td><td>Spotify couldn't play that track.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Safari and phones only allow audio that starts from a click. So the page also listens for every click and tells the player to “activate” its audio element, which lets a song started a moment later play.</p>
+      </section>
+
+      <section class="track" id="instrumentals">
+        <h2><span class="eyebrow">Track 04</span>Official instrumentals</h2>
+        <p>The cheapest way to remove a voice is to not need to: play the version the artist already made without one. Two files do this work. <code>matcher.js</code> decides what counts as an instrumental and which candidate is best. <code>bgm.js</code> decides when to search and how to switch.</p>
+
+        <h3>Telling an instrumental from a song</h3>
+        <p>A Spotify title often carries <em>tags</em>: text inside brackets <code>( [ {</code> or the Japanese brackets <code>【 「 『</code>, text after a spaced dash, or a trailing word such as “instrumental” or “karaoke version”. A track counts as an instrumental when one of its tags matches a marker, when its title has an Asian-language marker, or when its album name has either. Everything is compared after the text is normalised.</p>
+        <ul class="chips mono-chips">
+          <li>instrumental</li><li>instrumentals</li><li>inst</li><li>instr</li><li>off vocal</li><li>offvocal</li><li>karaoke</li><li>backing track</li><li>minus one</li><li>music only</li><li>without vocal</li><li>without vocals</li><li>no vocal</li><li>no vocals</li><li>オフボーカル</li><li>インストゥルメンタル</li><li>インスト</li><li>カラオケ</li><li>伴奏</li><li>반주</li>
+        </ul>
+
+        <h3>Finding the best one</h3>
+        <p>BGM Mode searches Spotify with up to three queries and stops at the first one whose pooled results contain a match. The first names the title, the first artist and the word instrumental. The second drops the artist, which finds songs whose instrumental is credited to the composer. The third uses “inst” instead, which is how many K-pop releases are named. Each query asks for 10 results, the most Spotify's Development Mode allows since February 2026, in your own market. The search runs for every new song, whether switching is automatic or you pressed the button, and the answer, including “none”, is remembered for the session.</p>
+
+        <figure class="fig" data-n="5">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 328" role="img" aria-label="The song's title, first artist and length go into up to three searches. The results are filtered by seven rejection rules, the survivors are scored, and the highest score is switched to. With no match, the fallback setting decides.">
+              <defs><marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <rect class="bx" x="10" y="90" width="100" height="100" rx="8"/>
+              <text class="tb" x="60" y="116" text-anchor="middle">The song</text>
+              <text class="ts tm" x="60" y="136" text-anchor="middle">title</text>
+              <text class="ts tm" x="60" y="152" text-anchor="middle">first artist</text>
+              <text class="ts tm" x="60" y="168" text-anchor="middle">length</text>
+              <path class="ar" d="M110 140 H130" marker-end="url(#a5)"/>
+
+              <rect class="bx" x="130" y="40" width="240" height="200" rx="8"/>
+              <text class="tb" x="146" y="64">Search, up to three tries</text>
+              <text class="ts tm" x="146" y="86">stops at the first match</text>
+              <text class="ts" x="146" y="116">1  title, artist, “instrumental”</text>
+              <text class="ts" x="146" y="138">2  title, “instrumental”</text>
+              <text class="ts" x="146" y="160">3  title, “inst”</text>
+              <text class="ts tm" x="146" y="190">10 results each, pooled</text>
+              <text class="ts tm" x="146" y="208">searched in your market</text>
+              <path class="ar" d="M370 140 H390" marker-end="url(#a5)"/>
+
+              <rect class="bx" x="390" y="40" width="150" height="200" rx="8"/>
+              <text class="tb" x="404" y="64">Throw out</text>
+              <text class="ts" x="404" y="90">not playable here</text>
+              <text class="ts" x="404" y="110">a different song</text>
+              <text class="ts" x="404" y="130">no instrumental tag</text>
+              <text class="ts" x="404" y="150">a cappella only</text>
+              <text class="ts" x="404" y="170">remix, live, piano…</text>
+              <text class="ts" x="404" y="190">no shared artist</text>
+              <text class="ts" x="404" y="210">length too different</text>
+              <path class="ar" d="M540 140 H560" marker-end="url(#a5)"/>
+
+              <rect class="bx hi" x="560" y="40" width="190" height="200" rx="8"/>
+              <text class="tb" x="576" y="64">Score what is left</text>
+              <text class="ts" x="576" y="90">start at 100</text>
+              <text class="ts" x="576" y="110">−4 for each second off</text>
+              <text class="ts" x="576" y="130">+10 same first artist</text>
+              <text class="ts" x="576" y="150">+10 marker in the title</text>
+              <text class="ts" x="576" y="170">+5 inst or off-vocal tag</text>
+              <text class="ts" x="576" y="190">+10 same album</text>
+              <text class="ts tm" x="576" y="216">highest score wins</text>
+
+              <path class="ar d" d="M250 240 V268" marker-end="url(#a5)"/>
+              <text class="ts tm" x="258" y="258">no match</text>
+              <rect class="bx dash" x="130" y="268" width="410" height="48" rx="8"/>
+              <text x="335" y="288" text-anchor="middle">Nothing left: your fallback setting decides</text>
+              <text class="ts tm" x="335" y="305" text-anchor="middle">live remover (the default), skip, or play the original</text>
+
+              <path class="ar g" d="M655 240 V268" marker-end="url(#g5)"/>
+              <rect class="bx hi" x="560" y="268" width="190" height="48" rx="8"/>
+              <text class="tb" x="655" y="288" text-anchor="middle">Switch to the best</text>
+              <text class="ts tm" x="655" y="305" text-anchor="middle">on a tie the first one wins</text>
+            </svg>
+          </div>
+          <figcaption>A candidate must pass every rejection rule before it is scored. The score only ranks the survivors, so a perfect length cannot rescue a different song.</figcaption>
+        </figure>
+
+        <p>A candidate is thrown out when any of these is true:</p>
+        <ul>
+          <li>it has no address or name, or it is the very track that is playing;</li>
+          <li>Spotify marks it as not playable in your market;</li>
+          <li>its core title (the title with its tags removed) differs from the song's;</li>
+          <li>neither its title nor its album name carries an instrumental marker;</li>
+          <li>its tags say a cappella or vocals only;</li>
+          <li>its tags contain an arrangement word that the original song does not (list below);</li>
+          <li>it shares no artist with the song;</li>
+          <li>its length differs from the song's by more than 8 seconds or 5 %, whichever is larger.</li>
+        </ul>
+        <p>The arrangement words stop BGM Mode swapping a song for a different piece of music that happens to say “instrumental”. Only the tags are checked, and a word the original song also carries does not count against the candidate. Karaoke is accepted, not excluded.</p>
+        <ul class="chips mono-chips">
+          <li>remix</li><li>rmx</li><li>live</li><li>acoustic</li><li>unplugged</li><li>piano</li><li>guitar</li><li>flute</li><li>violin</li><li>cello</li><li>sitar</li><li>sax</li><li>saxophone</li><li>harp</li><li>ukulele</li><li>orchestral</li><li>symphonic</li><li>strings</li><li>lofi</li><li>lo fi</li><li>slowed</li><li>reverb</li><li>sped up</li><li>speed up</li><li>nightcore</li><li>8d</li><li>cover</li><li>tribute</li><li>reprise</li><li>demo</li><li>lullaby</li><li>music box</li><li>8 bit</li><li>chiptune</li><li>club mix</li><li>extended</li>
+        </ul>
+
+        <h3>Switching without losing your place</h3>
+        <p>Before anything else the swap stamps the song with the current time, so the same song is not switched again for five minutes when switching is automatic. The button ignores that limit. Then it asks Spotify what is playing. With no active device it stops with an error. If the song has already changed it stops quietly, or, if you pressed the button, says “The song changed, try again.”</p>
+
+        <figure class="fig" data-n="6">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 300" role="img" aria-label="After reading what plays, a song inside a playlist or album is queued, the queue is checked for songs you queued by hand, then it skips to the instrumental and seeks to the same second. A single track is simply played at the same second.">
+              <defs><marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <rect class="bx" x="10" y="110" width="130" height="80" rx="8"/>
+              <text class="tb" x="75" y="134" text-anchor="middle">Read /me/player</text>
+              <text class="ts tm" x="75" y="154" text-anchor="middle">no device: error</text>
+              <text class="ts tm" x="75" y="170" text-anchor="middle">song changed: stop</text>
+
+              <text class="ts tm" x="190" y="22">in a playlist or album</text>
+              <path class="ar" d="M140 138 H165 V60 H190" marker-end="url(#a6)"/>
+              <rect class="bx" x="190" y="32" width="110" height="56" rx="8"/>
+              <text class="tb" x="245" y="56" text-anchor="middle">Queue it</text>
+              <text class="ts tm" x="245" y="74" text-anchor="middle">POST queue</text>
+              <path class="ar" d="M300 60 H330" marker-end="url(#a6)"/>
+              <rect class="bx" x="330" y="32" width="150" height="56" rx="8"/>
+              <text class="tb" x="405" y="56" text-anchor="middle">Check the queue</text>
+              <text class="ts tm" x="405" y="74" text-anchor="middle">5 looks, 300 ms apart</text>
+              <path class="ar" d="M480 60 H510" marker-end="url(#a6)"/>
+              <rect class="bx" x="510" y="32" width="90" height="56" rx="8"/>
+              <text class="tb" x="555" y="56" text-anchor="middle">Skip to it</text>
+              <text class="ts tm" x="555" y="74" text-anchor="middle">POST next</text>
+              <path class="ar" d="M600 60 H630" marker-end="url(#a6)"/>
+              <rect class="bx hi" x="630" y="32" width="120" height="56" rx="8"/>
+              <text class="tb" x="690" y="52" text-anchor="middle">Seek</text>
+              <text class="ts tm" x="690" y="68" text-anchor="middle">to the same second</text>
+              <text class="ts tm" x="690" y="82" text-anchor="middle">if past 3 s</text>
+
+              <path class="ar d" d="M405 88 V112" marker-end="url(#a6)"/>
+              <text class="ts tg" x="413" y="105">songs ahead</text>
+              <rect class="bx dash" x="330" y="112" width="150" height="56" rx="8"/>
+              <text class="ts" x="405" y="130" text-anchor="middle">tell you it plays after</text>
+              <text class="ts" x="405" y="146" text-anchor="middle">your own queued songs</text>
+              <text class="ts tm" x="405" y="162" text-anchor="middle">no skip</text>
+
+              <text class="ts tm" x="190" y="216">playing a single track</text>
+              <path class="ar" d="M140 162 H165 V252 H190" marker-end="url(#a6)"/>
+              <rect class="bx hi" x="190" y="224" width="290" height="56" rx="8"/>
+              <text class="tb" x="335" y="248" text-anchor="middle">Play the instrumental</text>
+              <text class="ts tm" x="335" y="266" text-anchor="middle">PUT play: its address and the same position</text>
+            </svg>
+          </div>
+          <figcaption>Queueing first keeps the playlist or album going after the instrumental. The queue check exists because songs you added to the queue by hand come first, and skipping over them would be rude.</figcaption>
+        </figure>
+
+        <p>The song's position is its last known progress plus the time that has passed since it was read, if it is playing. Inside a playlist or album, BGM Mode queues the instrumental, then looks at the queue up to five times, 300 ms apart, to count songs queued by hand that sit ahead of it. If there are some it leaves the queue alone and says the instrumental will play after them. Otherwise it skips to the next song, which is now the instrumental. If more than 3 seconds had gone by, it confirms the instrumental is the one playing (up to eight checks, 250 ms apart) and seeks to the same second. A single track with no playlist is simply played again from the same position.</p>
+
+        <h3>When there is no instrumental</h3>
+        <ul>
+          <li><strong>Live remover</strong> (the default). Nothing happens until you press Start, because the browser needs your click to share a tab. Leaving this setting stops the remover.</li>
+          <li><strong>Skip the song.</strong> BGM Mode skips ahead, up to 8 songs in a row. The ninth plays, with a notice that no instrumentals turned up in the last eight songs.</li>
+          <li><strong>Play the original.</strong> Nothing is done.</li>
+        </ul>
+        <p>Podcast episodes are never searched. The remover rests and the desk says BGM Mode leaves them as they are.</p>
+
+        <h3>Songs playing on another device</h3>
+        <p>The in-app player reports its own changes at once. For a song playing on your phone or the Spotify desktop app, BGM Mode asks Spotify what plays: every 5 seconds, or every 15 seconds while the in-app player is playing, when it only checks in case playback moved without word. It also asks at start-up, the moment the tab becomes visible again, and 800 ms after a command it sent itself. The question asks for songs and episodes. An answer for its own device is ignored, because the player already knows. Otherwise the song is treated like a local one, including looking for its instrumental and switching it on that device. Its position is advanced every 500 ms between answers.</p>
+      </section>
+
+      <section class="track" id="live">
+        <h2><span class="eyebrow">Track 05</span>The live remover</h2>
+        <p>When there is no official instrumental, or when you point BGM Mode at any other tab, a live remover takes over. It has three parts: a controller on the page (<code>live-remover.js</code>), the engine window (<code>engine.html</code> and <code>engine.js</code>), and two removers that live inside the engine.</p>
+
+        <figure class="fig" data-n="7">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 420" role="img" aria-label="A music tab's sound is shared with the BGM Mode page, which hands the stream to the engine window. Inside the engine, the stream enters the audio thread, goes through the Fast remover or the AI worklet, which talks to the AI pipeline on the main thread and the GPU, then through the Sound chain to the speakers.">
+              <defs><marker id="a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <rect class="bx" x="10" y="300" width="130" height="76" rx="8"/>
+              <text class="tb" x="75" y="326" text-anchor="middle">Music tab</text>
+              <text class="ts tm" x="75" y="344" text-anchor="middle">any site that</text>
+              <text class="ts tm" x="75" y="360" text-anchor="middle">plays music</text>
+
+              <rect class="bx hi" x="10" y="64" width="120" height="110" rx="8"/>
+              <text class="tb" x="70" y="88" text-anchor="middle">BGM Mode page</text>
+              <text class="ts tm" x="70" y="104" text-anchor="middle">app.html</text>
+              <text class="ts" x="70" y="128" text-anchor="middle">asks for the tab</text>
+              <text class="ts" x="70" y="144" text-anchor="middle">moves the sliders</text>
+              <text class="ts" x="70" y="160" text-anchor="middle">shows the status</text>
+
+              <path class="ar" d="M75 300 V176" marker-end="url(#a7)"/>
+              <text class="ts" x="84" y="236">tab sound</text>
+              <text class="ts tm" x="84" y="252">you pick the tab</text>
+
+              <rect class="lane" x="240" y="10" width="510" height="400" rx="14"/>
+              <text class="tb" x="256" y="32">Engine window (engine.html)</text>
+
+              <path class="ar" d="M130 104 H240" marker-end="url(#a7)"/>
+              <text class="ts" x="185" y="96" text-anchor="middle">stream, settings</text>
+              <path class="ar d" d="M240 138 H130" marker-end="url(#a7)"/>
+              <text class="ts tm" x="185" y="130" text-anchor="middle">status</text>
+
+              <rect class="band" x="256" y="44" width="478" height="152" rx="8"/>
+              <text class="ts tm" x="266" y="60">Main thread of that window</text>
+              <rect class="bx hi" x="276" y="72" width="220" height="104" rx="8"/>
+              <text class="tb" x="386" y="94" text-anchor="middle">AiPipeline</text>
+              <text class="ts tm" x="386" y="110" text-anchor="middle">AI mode only</text>
+              <text class="ts" x="386" y="128" text-anchor="middle">resample to 44.1 kHz</text>
+              <text class="ts" x="386" y="144" text-anchor="middle">STFT, model, inverse STFT</text>
+              <text class="ts" x="386" y="160" text-anchor="middle">cross-fade, resample back</text>
+              <rect class="bx dash" x="576" y="72" width="138" height="104" rx="8"/>
+              <text class="tb" x="645" y="94" text-anchor="middle">GPU</text>
+              <text class="ts tm" x="645" y="110" text-anchor="middle">WebGPU</text>
+              <text class="ts" x="645" y="128" text-anchor="middle">ONNX model</text>
+              <text class="ts" x="645" y="144" text-anchor="middle">one run: 0.3 s</text>
+              <text class="ts tm" x="645" y="160" text-anchor="middle">RTX 4050 laptop</text>
+              <path class="ar" d="M496 108 H576" marker-end="url(#a7)"/>
+              <text class="ts tm" x="536" y="100" text-anchor="middle">spectrogram</text>
+              <path class="ar" d="M576 148 H496" marker-end="url(#a7)"/>
+              <text class="ts tm" x="536" y="164" text-anchor="middle">result</text>
+
+              <rect class="band" x="256" y="208" width="478" height="190" rx="8"/>
+              <text class="ts tm" x="266" y="388">Audio thread (real time)</text>
+              <rect class="bx" x="272" y="270" width="100" height="64" rx="8"/>
+              <text class="tb" x="322" y="296" text-anchor="middle">Tab sound</text>
+              <text class="ts tm" x="322" y="314" text-anchor="middle">enters here</text>
+              <rect class="bx hi" x="410" y="238" width="150" height="56" rx="8"/>
+              <text class="tb" x="485" y="262" text-anchor="middle">ai-io worklet</text>
+              <text class="ts tm" x="485" y="280" text-anchor="middle">blocks out, buffer in</text>
+              <rect class="bx" x="410" y="322" width="150" height="56" rx="8"/>
+              <text class="tb" x="485" y="346" text-anchor="middle">Fast remover</text>
+              <text class="ts tm" x="485" y="364" text-anchor="middle">vocal-remover worklet</text>
+              <rect class="bx" x="600" y="276" width="120" height="52" rx="8"/>
+              <text class="tb" x="660" y="298" text-anchor="middle">Sound chain</text>
+              <text class="ts tm" x="660" y="316" text-anchor="middle">then speakers</text>
+
+              <path class="ar" d="M372 302 H391 V266 H410" marker-end="url(#a7)"/>
+              <path class="ar" d="M372 302 H391 V350 H410" marker-end="url(#a7)"/>
+              <path class="ar" d="M560 266 H580 V302 H600" marker-end="url(#a7)"/>
+              <path class="ar" d="M560 350 H580 V302 H600" marker-end="url(#a7)"/>
+
+              <path class="ar" d="M430 176 V238" marker-end="url(#a7)"/>
+              <text class="ts tm" x="424" y="230" text-anchor="end">clean sound</text>
+              <path class="ar" d="M476 238 V176" marker-end="url(#a7)"/>
+              <text class="ts tm" x="484" y="230">1024-sample blocks</text>
+            </svg>
+          </div>
+          <figcaption>The page only shares the sound and passes settings. Everything that processes audio runs in the engine window, which has its own audio, so what it plays is never captured again. The AI path crosses between the audio thread, the window's main thread and the GPU; the Fast remover stays on the audio thread.</figcaption>
+        </figure>
+
+        <h3>From one click to sound</h3>
+        <ol class="steps">
+          <li><strong>One click.</strong> Browsers allow screen sharing only inside a click, so Start runs <code>getDisplayMedia</code> first. You pick a tab, and must tick the box to share its sound. No sound track means an error message.</li>
+          <li><strong>The engine window opens</strong> as a small pop-up (380 by 300 pixels, named <code>bgm-engine</code>). If the browser blocks it, the button changes and a second click opens it.</li>
+          <li><strong>The stream is handed over</strong> by calling the engine window's own functions: <code>attach(stream, params)</code>, then <code>setParams</code> whenever the mode, the strength or the sound changes. The two windows share an origin, so no messages are needed. The engine sends reports back the same way.</li>
+          <li><strong>The engine builds its audio:</strong> an <code>AudioContext</code> set for steady playback, a source made from the stream, the chosen remover, the Sound chain, then your speakers.</li>
+        </ol>
+        <p>The share also carries a video track, kept to one frame a second. Its label tells the page which tab you chose.</p>
+
+        <div class="tablewrap">
+          <table>
+            <caption>The options passed to getDisplayMedia</caption>
+            <thead><tr><th>Option</th><th>This page's tab</th><th>Another tab</th></tr></thead>
+            <tbody>
+              <tr><td>video</td><td colspan="2">asks for a browser tab, at most 1 frame a second</td></tr>
+              <tr><td>audio: suppressLocalAudioPlayback</td><td colspan="2">true, so the shared tab is muted for you and you hear only the engine's output</td></tr>
+              <tr><td>audio: echo cancellation, noise suppression, automatic gain</td><td colspan="2">all off, so the music reaches the remover untouched</td></tr>
+              <tr><td>preferCurrentTab</td><td>true</td><td>false</td></tr>
+              <tr><td>selfBrowserSurface</td><td>include</td><td>exclude</td></tr>
+              <tr><td>surfaceSwitching</td><td>exclude</td><td>include</td></tr>
+              <tr><td>systemAudio, monitorTypeSurfaces</td><td colspan="2">exclude</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Two sources, two modes</h3>
+        <p>The <strong>source</strong> is either this page (<code>app</code>), where Spotify's player makes the sound, or another tab (<code>tab</code>). Start uses this page when you are logged in and another tab when you are not. When the source is this page and an official instrumental is playing, the strength is set to 0 so the music passes through without touching it. Music from another tab is always processed.</p>
+        <p>The <strong>mode</strong> is <code>ai</code> only when you chose AI quality, the model has finished downloading, and the browser has WebGPU. Otherwise it is <code>dsp</code>, the Fast remover. The strength sent to the engine is your slider divided by 100.</p>
+        <ul>
+          <li>The Fast remover plays while the AI model is still loading.</li>
+          <li>If a model run takes longer than 2.5 seconds, the engine reports that this GPU is too slow for live separation and Fast keeps playing. If the GPU fails later, it reports that the GPU stopped and switches to Fast. AI is not retried in that window.</li>
+          <li>Switching between Fast and AI replaces the audio node outright, so the AI path is silent for a moment until its buffer fills.</li>
+        </ul>
+
+        <h3>Why a separate window</h3>
+        <p>If the page played its own processed sound, the share would capture that sound again, creating a feedback loop, and the muting would silence the processed output along with everything else. The engine window has its own audio output, outside the share. It stops when any shared track ends (you press Stop sharing), when you press Stop, or when the window closes, which the page checks once a second.</p>
+      </section>
+
+      <section class="track" id="ai">
+        <h2><span class="eyebrow">Track 06</span>The AI vocal remover</h2>
+        <p>The AI remover uses a trained neural network in place of arithmetic. It is the “MDX-Net Inst HQ 5” model from the Ultimate Vocal Remover project (UVR). The model takes a short slice of music drawn as a picture of its frequencies over time, a <em>spectrogram</em>, and returns the same picture with only the instruments in it. The rest of this track is everything wrapped around that one step: getting the sound into a spectrogram, running the model fast enough to keep up with a song, and turning the answer back into sound.</p>
+
+        <h3>The model file</h3>
+        <dl class="glance">
+          <dt>File</dt><dd><code>models/UVR-MDX-NET-Inst_HQ_5.onnx</code>, 59,074,342 bytes (the README rounds this to 56 MB). It is not stored in git.</dd>
+          <dt>SHA-256</dt><dd><code>811cb24095d865763752310848b7ec86aeede0626cb05749ab35350e46897000</code>, written into both <code>ai-model.js</code> and <code>serve.mjs</code>. A test checks the two copies agree.</dd>
+          <dt>Expects</dt><dd>44,100 Hz sound, frames of 5120 samples every 1024 (<code>n_fft</code> 5120, <code>hop</code> 1024), 2560 frequency bins, 256 frames, and a correction factor of 1.01. These are UVR's own numbers for this exact file, looked up by its hash.</dd>
+          <dt>Runtime</dt><dd>ONNX Runtime Web 1.31.1 (the WebGPU build, loaded from jsDelivr) with the <code>webgpu</code> execution provider, full graph optimisation and one WASM thread. It needs <code>navigator.gpu</code>.</dd>
+        </dl>
+
+        <h3>Where the model comes from</h3>
+        <ul>
+          <li><strong>From the local server</strong> (<code>npm start</code>). The page can ask the server to download it. The request must come from the app's own address. The server fetches the UVR release file from GitHub, hashes it while writing a <code>.part</code> file, and renames it only if the hash matches. On any failure the partial file is deleted. A file already present at start-up is trusted without hashing again.</li>
+          <li><strong>Straight into the browser</strong> (no server needed). The page tries a copy on Hugging Face (<code>nomadkaraoke/public_uvr_models</code>), then another (<code>Politrees/UVR_resources</code>). It hashes the whole file with the browser's SHA-256. A mismatch moves on to the next copy. A match is stored in Cache Storage under <code>bgm-mode-model</code>, which the service worker keeps across app updates.</li>
+          <li><strong>Loading</strong> reads that cache first and otherwise takes the server's file, which it then caches without a hash check.</li>
+        </ul>
+        <p>Before the first real run the engine does one untimed run on silence, which makes the GPU compile its programs. It then times three runs back to back and keeps the <em>slowest</em> as the run time that pacing depends on.</p>
+
+        <h3>From sound to spectrogram and back</h3>
+        <ol class="steps">
+          <li><strong>Resample to 44.1 kHz.</strong> Sound cards usually run at 48 kHz, so the engine converts the captured sound. The resampler is a windowed-sinc design read from a table: 32 taps either side, 256 phases with linear interpolation between them, a Blackman window, and a cut-off of 0.97 of the lower Nyquist frequency. It adds no time shift and passes sound through untouched when the two rates already match.</li>
+          <li><strong>Short-time Fourier transform (STFT).</strong> The sound is cut into frames of 5120 samples, one every 1024, each weighted by a Hann window and centred on its place in the song. Left and right are packed into one complex FFT (left plus <em>i</em> times right) and separated afterwards, which halves the work. 5120 is 5 times 2<sup>10</sup>, so the FFT is a mixed-radix one.</li>
+          <li><strong>Model input.</strong> A tensor of 32-bit numbers shaped [1, 4, 2560, 256]: four channels (left real, left imaginary, right real, right imaginary), 2560 bins, 256 frames. Bins 0 to 2 are set to zero, as UVR does. The top bin is never written, so it is zero in the output.</li>
+          <li><strong>The model runs on the GPU</strong> and returns a tensor of the same shape: the music.</li>
+          <li><strong>Mixing by strength.</strong> With your strength slider as <em>s</em> between 0 and 1, every real and imaginary value becomes the formula below. At <em>s</em> = 0 the model is skipped.</li>
+          <li><strong>Inverse STFT.</strong> The frames are overlap-added with the window and divided by the summed squared windows, which restores the right loudness.</li>
+          <li><strong>Resample back</strong> to the sound card's rate.</li>
+        </ol>
+        <pre class="formula">output = mix + s × (1.01 × model − mix)</pre>
+
+        <h3>Streaming: a sliding window</h3>
+        <p>The model wants almost six seconds at once, but music keeps arriving. So every run looks at the latest 256 frames (5.94 seconds), and contributes only a small step of new output. The newest 12 frames are held back as look-ahead, so the model always has sound after the part it is cleaning.</p>
+
+        <figure class="fig" data-n="8">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 330" role="img" aria-label="Two model runs one step apart. Each run sees a window of 256 frames. Only a short step of new output at the right end is used, followed by 12 frames of look-ahead. The next run's window has slid forward by one step and the two outputs are joined with a 1024-sample cross-fade.">
+              <defs><marker id="a8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <text class="tb" x="40" y="48">One run</text>
+              <path class="ln" d="M546 64 H606"/><path class="ln" d="M606 64 H634"/>
+              <text class="ts" x="600" y="56" text-anchor="end">new output of this run</text>
+              <text class="ts tm" x="612" y="56">look-ahead</text>
+              <rect class="ctx" x="40" y="70" width="506" height="34"/>
+              <rect class="out" x="546" y="70" width="60" height="34"/>
+              <rect class="look" x="606" y="70" width="28" height="34"/>
+              <text class="ts" x="293" y="91" text-anchor="middle">everything the model sees: 256 frames, 5.94 s</text>
+              <path class="ln" d="M634 104 V112"/>
+              <text class="ts tm" x="640" y="122">newest sound heard</text>
+
+              <path class="mark" d="M606 104 V170"/>
+              <text class="ts tg" x="600" y="146" text-anchor="end">joined here with a 1024-sample cross-fade</text>
+
+              <text class="tb" x="100" y="158">The next run</text>
+              <rect class="ctx" x="100" y="170" width="506" height="34"/>
+              <rect class="out" x="606" y="170" width="60" height="34"/>
+              <rect class="look" x="666" y="170" width="28" height="34"/>
+              <text class="ts" x="353" y="191" text-anchor="middle">the window has slid forward by one step</text>
+              <text class="ts tm" x="636" y="222" text-anchor="middle">output</text>
+              <text class="ts tm" x="680" y="238" text-anchor="middle">look-ahead</text>
+
+              <path class="ln" d="M40 262 H700"/>
+              <g class="ln"><path d="M40 258 V266"/><path d="M140 258 V266"/><path d="M240 258 V266"/><path d="M340 258 V266"/><path d="M440 258 V266"/><path d="M540 258 V266"/><path d="M640 258 V266"/></g>
+              <g class="ts tm" text-anchor="middle"><text x="40" y="282">0</text><text x="140" y="282">1</text><text x="240" y="282">2</text><text x="340" y="282">3</text><text x="440" y="282">4</text><text x="540" y="282">5</text><text x="640" y="282">6 s</text></g>
+
+              <rect class="ctx" x="40" y="300" width="12" height="12"/>
+              <text class="ts" x="58" y="310">context the model sees</text>
+              <rect class="out" x="270" y="300" width="12" height="12"/>
+              <text class="ts" x="288" y="310">new output of this run</text>
+              <rect class="look" x="500" y="300" width="12" height="12"/>
+              <text class="ts" x="518" y="310">look-ahead, output by the next run</text>
+            </svg>
+          </div>
+          <figcaption>The window slides forward one step per run. Each run contributes only the gold part, and what was look-ahead for one run becomes output for the next. The scale at the bottom is seconds of sound, drawn for a 0.3 s model run.</figcaption>
+        </figure>
+
+        <p>The details, from <code>separator.js</code>:</p>
+        <ul>
+          <li>A frame is computed the moment its last sample arrives and goes into a ring of 256 slots.</li>
+          <li>When no run is in flight, a new one starts once the newest frame, minus the 12 frames of look-ahead, is at least one step ahead of what has already been output. This is checked again after every run.</li>
+          <li>Where two outputs meet, one extra hop (1024 samples) is cross-faded with a raised cosine, <em>r</em> = 0.5 − 0.5 · cos(π (<em>i</em> + 0.5) / 1024), so there is no click.</li>
+          <li>If the engine ever falls more than a whole window behind, the gap is filled with silence and the output jumps ahead.</li>
+        </ul>
+
+        <h3>How often the model runs</h3>
+        <p>The step is chosen from how long a run takes, in <code>stepFramesFor</code>. A run must finish before the next one is due, with 30 % to spare. When it can, the GPU rests twice as long as it works, so a laptop stays cool. But runs are never more than 0.6 seconds apart, because every extra second of step is a second of delay behind the player. In symbols, with the run time in seconds:</p>
+        <pre class="formula">step = max(run × 1.3, min(run × 3, 0.6 s))      frames = clamp(ceil(step × 44100 / 1024), 12, 96)</pre>
+        <div class="tablewrap">
+          <table>
+            <caption>Worked out with the project's own functions</caption>
+            <thead><tr><th>One model run takes</th><th>New output every</th><th>Start margin</th><th>Estimated delay</th></tr></thead>
+            <tbody>
+<tr><td>0.2 s</td><td>26 frames, every 0.60 s</td><td>0.12 s</td><td>1.26 s</td></tr>
+<tr><td>0.3 s</td><td>26 frames, every 0.60 s</td><td>0.15 s</td><td>1.39 s</td></tr>
+<tr><td>0.5 s</td><td>28 frames, every 0.65 s</td><td>0.25 s</td><td>1.74 s</td></tr>
+<tr><td>0.9 s</td><td>51 frames, every 1.18 s</td><td>0.45 s</td><td>2.87 s</td></tr>
+<tr><td>2.0 s</td><td>96 frames, every 2.23 s</td><td>0.50 s</td><td>5.07 s</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The 0.6 s rhythm holds for runs of about 0.2 to 0.46 seconds. Faster GPUs step at three times their run time, and a run slower than about 1.7 seconds hits the 96-frame ceiling, so the step becomes shorter than 1.3 times the run. A GPU whose runs take more than 2.5 seconds is judged too slow and the engine stays on the Fast remover.</p>
+
+        <h3>The delay behind the player</h3>
+        <figure class="fig" data-n="9">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 256" role="img" aria-label="A bar to scale showing where the 1.39 seconds of delay goes for a 0.3 second model run: 0.34 seconds of look-ahead, a 0.60 second step, the 0.30 second run itself and a 0.15 second start margin.">
+              <defs><marker id="a9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <text class="tb" x="370" y="52" text-anchor="middle">about 1.39 s behind the player</text>
+              <path class="ln" d="M40 72 V64 H700 V72"/>
+              <rect class="bar2" x="40" y="80" width="160" height="50"/>
+              <rect class="bar" x="200" y="80" width="286.6" height="50"/>
+              <rect class="bar3" x="486.6" y="80" width="142.4" height="50"/>
+              <rect class="bar4" x="629" y="80" width="71" height="50"/>
+              <g class="dark" text-anchor="middle">
+                <text x="120" y="102">look-ahead</text><text x="343.3" y="102">step</text><text x="557.8" y="102">run</text><text x="664.5" y="102">margin</text>
+              </g>
+              <g class="ts dark" text-anchor="middle">
+                <text x="120" y="120">0.34 s</text><text x="343.3" y="120">0.60 s</text><text x="557.8" y="120">0.30 s</text><text x="664.5" y="120">0.15 s</text>
+              </g>
+              <g class="ts tm">
+                <text x="40" y="156">12 frames of sound after</text><text x="40" y="171">the part being output,</text><text x="40" y="186">plus half a window</text>
+                <text x="206" y="156">the model starts a run</text><text x="206" y="171">every 0.6 s, so sound waits</text><text x="206" y="186">for the next run to start</text><text x="206" y="201">(26 frames at 0.3 s a run)</text>
+                <text x="492" y="156">the run itself:</text><text x="492" y="171">0.3 s on an RTX 4050</text>
+                <text x="635" y="156">buffer held</text><text x="635" y="171">before playback</text><text x="635" y="186">starts</text>
+              </g>
+              <text class="ts tm" x="40" y="228">Measured on an RTX 4050: 1.3 to 1.5 s. Once playback starts, the real gap replaces this estimate.</text>
+              <text class="ts tm" x="40" y="246">The output device's own delay is not counted.</text>
+            </svg>
+          </div>
+          <figcaption>The four parts of the delay for a model run of 0.3 s, drawn to scale. The delay is the sum of the four, and the step is the part that pacing trades against heat.</figcaption>
+        </figure>
+        <p>The look-ahead is (12 × 1024 + 2560) / 44100 = 0.337 s: twelve frames, plus half of one 5120-sample window because frames are centred. The README measures 1.3 to 1.5 seconds on an RTX 4050 at its usual 0.3 s a run, and about 2.6 seconds when runs take 0.3 to 0.9 seconds, measured in headless Chrome. When playback starts, the engine replaces its estimate with the measured gap between what was captured and what has been played.</p>
+
+        <h3>Keeping the sound from running dry</h3>
+        <p>Processed sound lands in a playback buffer on the audio thread (<code>playback-fifo.js</code>) that holds up to 30 seconds. Playback starts only once a safety <em>margin</em> of sound is waiting. The engine sets the margin to half a model run, never below 0.12 s or above 0.5 s. If the buffer ever runs empty, it plays silence, tells the engine, and waits for the margin again. The engine answers each such underrun by lengthening the margin by 0.1 s, up to 1 s. If the buffer overflows, the oldest sound is dropped. Until the engine sends a margin the buffer uses 0.12 s, capped at 2 s.</p>
+
+        <h3>What it achieves</h3>
+        <div class="tablewrap">
+          <table>
+            <caption>The README's measurements</caption>
+            <thead><tr><th>Remover</th><th>Voice that is left</th><th>Music fidelity</th></tr></thead>
+            <tbody>
+              <tr><td>AI (the default)</td><td>−33 dB, about 2 % of its level</td><td>21.5 dB</td></tr>
+              <tr><td>Fast remover</td><td>about −5 dB overall</td><td>10.5 dB</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>So the AI rebuilds the music about 10 dB more faithfully than Fast. The README also reports that changing how runs are joined, or adding look-ahead, moved the result by less than 0.05 dB.</p>
+        <div class="note">
+          <b>Check</b>
+          <p>These figures are the README's. This guide read the code that produces them but did not repeat the measurements.</p>
+        </div>
+      </section>
+
+      <section class="track" id="fast">
+        <h2><span class="eyebrow">Track 07</span>The Fast remover</h2>
+        <p>The Fast remover needs no model and no GPU. It runs inside the audio thread (<code>dsp-core.js</code>, wrapped by <code>vocal-remover.worklet.js</code>) and is classic signal processing. A lead singer is almost always mixed dead centre, so the voice has the same level and the same phase in both speakers. Most instruments are spread to one side. The remover finds the frequencies that look centred and subtracts only those.</p>
+
+        <figure class="fig" data-n="10">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 420" role="img" aria-label="The Fast remover's stages from stereo input through an FFT, a centre score per frequency, a mask and a subtraction, with the drum detector and the mono guard feeding the mask, and a chart of how much of each frequency band can be removed.">
+              <defs><marker id="a10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <rect class="bx" x="30" y="20" width="120" height="90" rx="8"/>
+              <text class="tb" x="90" y="46" text-anchor="middle">Stereo in</text>
+              <text class="ts tm" x="90" y="64" text-anchor="middle">left and right</text>
+              <path class="ar" d="M150 65 H175" marker-end="url(#a10)"/>
+              <rect class="bx" x="175" y="20" width="120" height="90" rx="8"/>
+              <text class="tb" x="235" y="44" text-anchor="middle">FFT</text>
+              <text class="ts" x="235" y="62" text-anchor="middle">4096 samples</text>
+              <text class="ts" x="235" y="78" text-anchor="middle">hop 1024</text>
+              <text class="ts tm" x="235" y="94" text-anchor="middle">Hann window</text>
+              <path class="ar" d="M295 65 H320" marker-end="url(#a10)"/>
+              <rect class="bx" x="320" y="20" width="120" height="90" rx="8"/>
+              <text class="tb" x="380" y="40" text-anchor="middle">Centre score</text>
+              <text class="ts" x="380" y="58" text-anchor="middle">balance</text>
+              <text class="ts" x="380" y="74" text-anchor="middle">× coherence</text>
+              <text class="ts" x="380" y="90" text-anchor="middle">× in-phase</text>
+              <path class="ar" d="M440 65 H465" marker-end="url(#a10)"/>
+              <rect class="bx hi" x="465" y="20" width="120" height="90" rx="8"/>
+              <text class="tb" x="525" y="40" text-anchor="middle">Mask</text>
+              <text class="ts" x="525" y="58" text-anchor="middle">smoothstep(lo, hi)</text>
+              <text class="ts" x="525" y="74" text-anchor="middle">× band × strength</text>
+              <text class="ts" x="525" y="90" text-anchor="middle">× (1 − drum)</text>
+              <path class="ar" d="M585 65 H610" marker-end="url(#a10)"/>
+              <rect class="bx" x="610" y="20" width="120" height="90" rx="8"/>
+              <text class="tb" x="670" y="40" text-anchor="middle">Subtract</text>
+              <text class="ts" x="670" y="58" text-anchor="middle">the centre part</text>
+              <text class="ts" x="670" y="74" text-anchor="middle">from each channel</text>
+              <text class="ts" x="670" y="90" text-anchor="middle">then inverse FFT</text>
+
+              <rect class="bx" x="360" y="170" width="225" height="84" rx="8"/>
+              <text class="tb" x="372" y="192">Drum detector (below 6 kHz)</text>
+              <text class="ts" x="372" y="212">steady: median of the last 7 frames</text>
+              <text class="ts" x="372" y="228">spread: median across ±8 bins</text>
+              <text class="ts tm" x="372" y="244">a hit: spread beats steady</text>
+              <path class="ar" d="M525 170 V112" marker-end="url(#a10)"/>
+              <text class="ts tm" x="532" y="152">keeps drum hits</text>
+
+              <rect class="bx" x="610" y="170" width="120" height="84" rx="8"/>
+              <text class="tb" x="622" y="192">Mono guard</text>
+              <text class="ts" x="622" y="210">side ÷ mid energy</text>
+              <text class="ts" x="622" y="226">under 0.001: mono</text>
+              <text class="ts tm" x="622" y="244">then strength 0</text>
+              <path class="ar d" d="M640 170 V138 H560 V112" marker-end="url(#a10)"/>
+
+              <text class="ts tm" x="360" y="290">reach 0.5: a bin counts as centred above 0.55, fully above 0.85</text>
+              <text class="ts tm" x="360" y="308">the mask rises 0.6 of the way and falls 0.25 of the way each frame</text>
+              <text class="ts tm" x="360" y="326">strength glides half way to a new value each frame</text>
+              <text class="ts tm" x="360" y="344">delay: 4096 samples, about 85 ms at 48 kHz</text>
+
+              <text class="tb" x="30" y="200">How much of each pitch can be removed</text>
+              <text class="ts tm" x="30" y="216">band weight by frequency</text>
+              <path class="faint" d="M70 225 H330"/>
+              <path class="ln" d="M70 225 V365 H330"/>
+              <text class="ts tm" x="62" y="229" text-anchor="end">1</text>
+              <text class="ts tm" x="62" y="369" text-anchor="end">0</text>
+              <g class="ts tm" text-anchor="middle">
+                <text x="70" y="382">50</text><text x="108" y="382">120</text><text x="130" y="382">200</text><text x="200" y="382">1k</text><text x="295" y="382">9k</text><text x="320" y="382">16k</text>
+              </g>
+              <text class="ts tm" x="330" y="398" text-anchor="end">Hz</text>
+              <path class="curve c-a" d="M70 365 L72.6 365 L75.2 365 L77.8 365 L80.4 365 L83 365 L85.6 365 L88.2 365 L90.8 365 L93.4 365 L96 365 L98.6 365 L101.2 365 L103.8 365 L106.4 365 L109 364.5 L111.6 358.5 L114.2 346.1 L116.8 327.9 L119.4 305.2 L122 280.1 L124.6 255.3 L127.2 235.1 L129.8 225.2 L132.4 225 L135 225 L137.6 225 L140.2 225 L142.8 225 L145.4 225 L148 225 L150.6 225 L153.2 225 L155.8 225 L158.4 225 L161 225 L163.6 225 L166.2 225 L168.8 225 L171.4 225 L174 225 L176.6 225 L179.2 225 L181.8 225 L184.4 225 L187 225 L189.6 225 L192.2 225 L194.8 225 L197.4 225 L200 225 L202.6 225 L205.2 225 L207.8 225 L210.4 225 L213 225 L215.6 225 L218.2 225 L220.8 225 L223.4 225 L226 225 L228.6 225 L231.2 225 L233.8 225 L236.4 225 L239 225 L241.6 225 L244.2 225 L246.8 225 L249.4 225 L252 225 L254.6 225 L257.2 225 L259.8 225 L262.4 225 L265 225 L267.6 225 L270.2 225 L272.8 225 L275.4 225 L278 225 L280.6 225 L283.2 225 L285.8 225 L288.4 225 L291 225 L293.6 225 L296.2 225.2 L298.8 227.7 L301.4 233.1 L304 241.4 L306.6 252.2 L309.2 264.9 L311.8 278.5 L314.4 291.8 L317 302.7 L319.6 308.7 L322.2 309 L324.8 309 L327.4 309 L330 309"/>
+              <text class="ts tm" x="140" y="250">full removal from 200 Hz</text>
+              <text class="ts tm" x="140" y="266">eases to 40 % at 16 kHz</text>
+              <text class="ts tm" x="140" y="282">untouched below 120 Hz</text>
+            </svg>
+          </div>
+          <figcaption>Three signals meet in the mask: how centred a frequency looks, whether it is a drum hit, and whether the whole song is mono. The chart shows the fixed band weight, drawn from the same formula the code uses.</figcaption>
+        </figure>
+
+        <h3>Step by step</h3>
+        <ol class="steps">
+          <li><strong>Cut the sound into frames.</strong> An FFT of 4096 samples every 1024 (75 % overlap), each weighted by a Hann window. The whole remover adds 4096 samples of delay: about 85 ms at 48 kHz.</li>
+          <li><strong>Score every frequency for “centredness”.</strong> Three numbers, each between 0 and 1, multiplied together, from statistics smoothed over about 70 ms:
+            <ul>
+              <li><em>balance</em>: 1 when left and right are equally loud at that frequency;</li>
+              <li><em>coherence</em>: 1 when they carry the same waveform;</li>
+              <li><em>in-phase</em>: 1 when there is no phase offset between them.</li>
+            </ul>
+          </li>
+          <li><strong>Turn the score into a mask.</strong> The score is smoothed a little across neighbouring bins (a quarter, a half, a quarter), then passed through a smoothstep between two thresholds, and multiplied by the strength and by the band weight. With the fixed <em>reach</em> of 0.5 the thresholds are 0.55 and 0.85. The mask rises quickly when a voice appears (0.6 of the gap each frame) and lets go slowly (0.25), which avoids a warbling sound. The strength itself glides half way to a new value each frame, so moving the slider never clicks.</li>
+          <li><strong>Protect the bass and the top.</strong> The band weight is 0 below 120 Hz, rises smoothly to 1 at 200 Hz, and eases down to 40 % between 9 kHz and 16 kHz. Kick and bass guitar survive, and so do cymbals and air.</li>
+          <li><strong>Protect drum hits.</strong> Kick and snare also sit in the centre, but a hit is sudden and spreads over many frequencies, while a sung note is a few steady harmonics. Below 6 kHz the remover compares each bin with its own last seven frames (what is steady) and with the neighbouring ±8 bins (what is spread out). A bin that stands out the way a broadband hit does gets a drum score, and the mask is multiplied by one minus that score. The protection fades out between 3.5 kHz and 6 kHz so the “s” and “t” sounds of a voice are still removed. The README reports that a centred snare keeps about 8 dB more of each hit this way.</li>
+          <li><strong>Subtract.</strong> For each frequency the centre part, <em>mask × the quieter channel's size</em>, carrying the phase of the left-plus-right sum, is subtracted from both channels. It can never be louder than the quieter channel, so a sound panned to one side survives.</li>
+          <li><strong>Guard against mono.</strong> A mono song is all centre, and removing the centre would leave nothing. The guard compares the energy of left minus right with left plus right, each smoothed. Under 0.001 (−30 dB) after the first four fresh frames it declares the song mono and sets the strength to 0; above 0.003 it declares stereo again. Anything quieter than about −80 dB resets it between songs. The flag goes to the page, which says so in the live-remover line.</li>
+        </ol>
+        <p>The strength slider sets the strength directly (a percentage divided by 100). The <em>reach</em> is fixed at 0.5. A note in the code records that it could be widened near the top of the slider for stubborn vocals.</p>
+      </section>
+
+      <section class="track" id="sound">
+        <h2><span class="eyebrow">Track 08</span>Shaping the sound</h2>
+        <p>Once the vocals are gone, the music can be shaped. The Sound panel has five tone controls named for what they do to a song, a stereo width control called Space, and twelve ready-made styles. The chain that applies them lives in <code>sound.js</code>, the panel in <code>sound-panel.js</code>, and the landing page's preview in <code>sound-demo.js</code>.</p>
+        <p>The chain sits inside the engine window, between the remover and your speakers, so it shapes whatever the live remover plays. The Sound button is hidden in browsers that cannot run the live remover.</p>
+
+        <figure class="fig" data-n="11">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 306" role="img" aria-label="The sound chain in order: headroom, bass, warmth, instruments, clarity, treble, space, limiter, trim, speakers.">
+              <defs><marker id="a11" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g11" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <rect class="bx" x="25" y="30" width="122" height="76" rx="8"/>
+              <text class="tb" x="86" y="56" text-anchor="middle">Headroom</text>
+              <text class="ts" x="86" y="76" text-anchor="middle">0 to −9 dB</text>
+              <text class="ts tm" x="86" y="92" text-anchor="middle">before any boost</text>
+              <path class="ar" d="M147 68 H172" marker-end="url(#a11)"/>
+              <rect class="bx" x="172" y="30" width="122" height="76" rx="8"/>
+              <text class="tb" x="233" y="56" text-anchor="middle">Bass</text>
+              <text class="ts" x="233" y="76" text-anchor="middle">low shelf, 90 Hz</text>
+              <text class="ts tm" x="233" y="92" text-anchor="middle">±12 dB</text>
+              <path class="ar" d="M294 68 H319" marker-end="url(#a11)"/>
+              <rect class="bx" x="319" y="30" width="122" height="76" rx="8"/>
+              <text class="tb" x="380" y="56" text-anchor="middle">Warmth</text>
+              <text class="ts" x="380" y="76" text-anchor="middle">peak, 300 Hz</text>
+              <text class="ts tm" x="380" y="92" text-anchor="middle">±8 dB, Q 0.8</text>
+              <path class="ar" d="M441 68 H466" marker-end="url(#a11)"/>
+              <rect class="bx" x="466" y="30" width="122" height="76" rx="8"/>
+              <text class="tb" x="527" y="56" text-anchor="middle">Instruments</text>
+              <text class="ts" x="527" y="76" text-anchor="middle">peak, 1.2 kHz</text>
+              <text class="ts tm" x="527" y="92" text-anchor="middle">±8 dB, Q 0.8</text>
+              <path class="ar" d="M588 68 H613" marker-end="url(#a11)"/>
+              <rect class="bx" x="613" y="30" width="122" height="76" rx="8"/>
+              <text class="tb" x="674" y="56" text-anchor="middle">Clarity</text>
+              <text class="ts" x="674" y="76" text-anchor="middle">peak, 3.5 kHz</text>
+              <text class="ts tm" x="674" y="92" text-anchor="middle">±8 dB, Q 0.9</text>
+
+              <path class="ar" d="M674 106 V133 H86 V160" marker-end="url(#a11)"/>
+
+              <rect class="bx" x="25" y="160" width="122" height="84" rx="8"/>
+              <text class="tb" x="86" y="186" text-anchor="middle">Treble</text>
+              <text class="ts" x="86" y="206" text-anchor="middle">high shelf, 9 kHz</text>
+              <text class="ts tm" x="86" y="222" text-anchor="middle">±12 dB</text>
+              <path class="ar" d="M147 202 H172" marker-end="url(#a11)"/>
+              <rect class="bx" x="172" y="160" width="122" height="84" rx="8"/>
+              <text class="tb" x="233" y="186" text-anchor="middle">Space</text>
+              <text class="ts" x="233" y="206" text-anchor="middle">stereo width</text>
+              <text class="ts tm" x="233" y="222" text-anchor="middle">0 to 200 %</text>
+              <path class="ar" d="M294 202 H319" marker-end="url(#a11)"/>
+              <rect class="bx hi" x="319" y="160" width="122" height="84" rx="8"/>
+              <text class="tb" x="380" y="184" text-anchor="middle">Limiter</text>
+              <text class="ts" x="380" y="202" text-anchor="middle">threshold −2 dB</text>
+              <text class="ts" x="380" y="218" text-anchor="middle">ratio 20</text>
+              <text class="ts tm" x="380" y="234" text-anchor="middle">1 ms in, 0.25 s out</text>
+              <path class="ar" d="M441 202 H466" marker-end="url(#a11)"/>
+              <rect class="bx" x="466" y="160" width="122" height="84" rx="8"/>
+              <text class="tb" x="527" y="184" text-anchor="middle">Trim</text>
+              <text class="ts" x="527" y="202" text-anchor="middle">× 0.877</text>
+              <text class="ts tm" x="527" y="218" text-anchor="middle">−1.14 dB, cancels</text>
+              <text class="ts tm" x="527" y="234" text-anchor="middle">the make-up gain</text>
+              <path class="ar g" d="M588 202 H613" marker-end="url(#g11)"/>
+              <rect class="bx" x="613" y="160" width="122" height="84" rx="8"/>
+              <text class="tb" x="674" y="186" text-anchor="middle">Speakers</text>
+              <text class="ts tm" x="674" y="206" text-anchor="middle">your output device</text>
+
+              <text class="ts tm" x="25" y="272">Every control eases to a new value over 0.03 s (a time constant), so moving a slider never clicks.</text>
+              <text class="ts tm" x="25" y="290">Headroom = −(half the biggest boost + 3 dB for each 100 % of extra width), so boosts cannot push loud songs past full scale.</text>
+            </svg>
+          </div>
+          <figcaption>The order matters: headroom comes first so boosts cannot clip, and the limiter comes last to catch whatever peaks remain.</figcaption>
+        </figure>
+
+        <div class="tablewrap">
+          <table>
+            <caption>The controls</caption>
+            <thead><tr><th>Control</th><th>What it does to a song</th><th>Filter</th><th class="num">Range</th></tr></thead>
+            <tbody>
+              <tr><td>Bass</td><td>Kick drum and bass guitar: the low thump</td><td>low shelf at 90 Hz</td><td class="num">±12 dB</td></tr>
+              <tr><td>Warmth</td><td>The body of guitars, piano and pads</td><td>peak at 300 Hz, Q 0.8</td><td class="num">±8 dB</td></tr>
+              <tr><td>Instruments</td><td>Melody instruments step forward or back</td><td>peak at 1200 Hz, Q 0.8</td><td class="num">±8 dB</td></tr>
+              <tr><td>Clarity</td><td>The crisp attack of strings, snare and keys</td><td>peak at 3500 Hz, Q 0.9</td><td class="num">±8 dB</td></tr>
+              <tr><td>Treble</td><td>Cymbals, hi-hats and sparkle</td><td>high shelf at 9000 Hz</td><td class="num">±12 dB</td></tr>
+              <tr><td>Space</td><td>How wide the music spreads between left and right</td><td>stereo width matrix</td><td class="num">0 to 200 %</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>How each part works</h3>
+        <ul>
+          <li><strong>Shelves and peaks.</strong> A shelf lifts or cuts everything below (or above) its frequency. A peak lifts or cuts a band around its frequency, narrower for a higher Q. The tone sliders move in steps of 1 dB.</li>
+          <li><strong>Space.</strong> Call the setting <em>w</em>, from 0 to 2 (the percentage divided by 100). Each speaker gets <em>(1 + w) / 2</em> of its own side plus <em>(1 − w) / 2</em> of the other. At 100 % that changes nothing, at 0 % both speakers carry the same mix (mono), and at 200 % the other side is subtracted at half strength, which pushes the stereo image wider. Space moves in steps of 5.</li>
+          <li><strong>Headroom.</strong> Boosts make a song louder and can push it past full scale. The chain turns the song down first by half of the biggest boost plus 3 dB for each 100 % that Space goes above 100. That is 0 dB for flat settings and at most 9 dB (a 12 dB boost and Space at 200 %). Cuts need none.</li>
+          <li><strong>Limiter.</strong> A compressor set as a limiter, with a threshold of −2 dB, no knee, a ratio of 20, an attack of 1 ms and a release of 0.25 s. It only catches peaks. Web Audio's compressor always adds make-up gain, which for these settings is 1.14 dB, so a trim of 0.877 (−1.14 dB) takes it off again. A Flat setting therefore passes the music at the level it was recorded.</li>
+          <li><strong>Safety.</strong> Numbers outside a control's range are clamped, and a missing or broken number is treated as flat.</li>
+        </ul>
+
+        <figure class="fig" data-n="12">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 330" role="img" aria-label="Frequency response of four styles. Deep focus lifts the low mids and cuts the highs, Bass boost lifts the lows, Bright and airy lifts the highs, and Lo-fi cuts the highs by about 9 decibels.">
+              <defs><marker id="a12" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g12" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <text class="ts tm" x="12" y="22">gain, dB</text>
+              <g class="faint">
+                <path d="M56 30 H620"/><path d="M56 90 H620"/><path d="M56 210 H620"/><path d="M56 270 H620"/>
+                <path d="M130.8 30 V270"/><path d="M187.4 30 V270"/><path d="M244 30 V270"/><path d="M318.8 30 V270"/><path d="M375.4 30 V270"/><path d="M432 30 V270"/><path d="M506.8 30 V270"/><path d="M563.4 30 V270"/><path d="M620 30 V270"/>
+              </g>
+              <path class="zero" d="M56 150 H620"/>
+              <path class="ln" d="M56 30 V270"/>
+              <g class="ts tm" text-anchor="end"><text x="50" y="34">+12</text><text x="50" y="94">+6</text><text x="50" y="154">0</text><text x="50" y="214">−6</text><text x="50" y="274">−12</text></g>
+              <g class="ts tm" text-anchor="middle"><text x="56" y="288">20</text><text x="130.8" y="288">50</text><text x="187.4" y="288">100</text><text x="244" y="288">200</text><text x="318.8" y="288">500</text><text x="375.4" y="288">1k</text><text x="432" y="288">2k</text><text x="506.8" y="288">5k</text><text x="563.4" y="288">10k</text><text x="620" y="288">20k</text></g>
+              <text class="ts tm" x="620" y="306" text-anchor="end">Hz</text>
+              <text class="ts tm" x="632" y="36">the 0 dB line</text>
+              <text class="ts tm" x="632" y="50">is as recorded</text>
+<path class="curve c-a" d="M56 129.8 L60.7 129.8 L65.4 129.8 L70.1 129.8 L74.8 129.8 L79.5 129.8 L84.2 129.8 L88.9 129.8 L93.6 129.8 L98.3 129.8 L103 129.8 L107.7 129.9 L112.4 129.9 L117.1 130 L121.8 130.1 L126.5 130.3 L131.2 130.5 L135.9 130.7 L140.6 131 L145.3 131.4 L150 131.8 L154.7 132.4 L159.4 132.9 L164.1 133.6 L168.8 134.3 L173.5 135 L178.2 135.6 L182.9 136.2 L187.6 136.8 L192.3 137.2 L197 137.4 L201.7 137.5 L206.4 137.3 L211.1 137 L215.8 136.5 L220.5 135.7 L225.2 134.7 L229.9 133.5 L234.6 132.2 L239.3 130.7 L244 129 L248.7 127.4 L253.4 125.7 L258.1 124.1 L262.8 122.8 L267.5 121.8 L272.2 121.2 L276.9 121.1 L281.6 121.5 L286.3 122.5 L291 123.8 L295.7 125.6 L300.4 127.6 L305.1 129.7 L309.8 132 L314.5 134.2 L319.2 136.4 L323.9 138.6 L328.6 140.7 L333.3 142.7 L338 144.6 L342.7 146.5 L347.4 148.3 L352.1 150.1 L356.8 151.8 L361.5 153.5 L366.2 155.1 L370.9 156.6 L375.6 158 L380.3 159.3 L385 160.5 L389.7 161.5 L394.4 162.3 L399.1 163.1 L403.8 163.8 L408.5 164.4 L413.2 165 L417.9 165.7 L422.6 166.5 L427.3 167.4 L432 168.5 L436.7 169.8 L441.4 171.3 L446.1 173 L450.8 174.8 L455.5 176.6 L460.2 178.4 L464.9 180 L469.6 181.3 L474.3 182 L479 182.1 L483.7 181.5 L488.4 180.4 L493.1 178.9 L497.8 177.1 L502.5 175.2 L507.2 173.4 L511.9 171.8 L516.6 170.4 L521.3 169.5 L526 168.9 L530.7 168.8 L535.4 169.2 L540.1 170 L544.8 171.3 L549.5 172.9 L554.2 174.9 L558.9 177 L563.6 179.2 L568.3 181.4 L573 183.4 L577.7 185.2 L582.4 186.7 L587.1 187.9 L591.8 188.8 L596.5 189.4 L601.2 189.8 L605.9 190 L610.6 190.1 L615.3 190.1 L620 190.1"/>
+<path class="curve c-b" d="M56 80 L60.7 80.1 L65.4 80.1 L70.1 80.2 L74.8 80.3 L79.5 80.3 L84.2 80.5 L88.9 80.6 L93.6 80.8 L98.3 81.1 L103 81.4 L107.7 81.8 L112.4 82.3 L117.1 82.9 L121.8 83.7 L126.5 84.7 L131.2 85.8 L135.9 87.2 L140.6 88.8 L145.3 90.8 L150 93 L154.7 95.5 L159.4 98.4 L164.1 101.4 L168.8 104.7 L173.5 108.1 L178.2 111.6 L182.9 115.1 L187.6 118.4 L192.3 121.6 L197 124.4 L201.7 126.9 L206.4 129.1 L211.1 130.9 L215.8 132.2 L220.5 133.2 L225.2 133.8 L229.9 134 L234.6 134 L239.3 133.7 L244 133.1 L248.7 132.5 L253.4 131.7 L258.1 130.9 L262.8 130.2 L267.5 129.7 L272.2 129.4 L276.9 129.4 L281.6 129.7 L286.3 130.2 L291 131.1 L295.7 132.1 L300.4 133.3 L305.1 134.6 L309.8 135.9 L314.5 137.2 L319.2 138.5 L323.9 139.6 L328.6 140.7 L333.3 141.7 L338 142.6 L342.7 143.4 L347.4 144.1 L352.1 144.8 L356.8 145.3 L361.5 145.9 L366.2 146.3 L370.9 146.7 L375.6 147.1 L380.3 147.4 L385 147.7 L389.7 148 L394.4 148.2 L399.1 148.4 L403.8 148.6 L408.5 148.7 L413.2 148.9 L417.9 149 L422.6 149.1 L427.3 149.2 L432 149.3 L436.7 149.4 L441.4 149.4 L446.1 149.5 L450.8 149.5 L455.5 149.6 L460.2 149.6 L464.9 149.6 L469.6 149.6 L474.3 149.6 L479 149.6 L483.7 149.6 L488.4 149.6 L493.1 149.5 L497.8 149.5 L502.5 149.4 L507.2 149.3 L511.9 149.1 L516.6 148.9 L521.3 148.7 L526 148.4 L530.7 148 L535.4 147.5 L540.1 147 L544.8 146.4 L549.5 145.8 L554.2 145.1 L558.9 144.3 L563.6 143.6 L568.3 142.9 L573 142.3 L577.7 141.7 L582.4 141.3 L587.1 140.9 L591.8 140.6 L596.5 140.4 L601.2 140.2 L605.9 140.1 L610.6 140.1 L615.3 140 L620 140"/>
+<path class="curve c-c" d="M56 160 L60.7 160 L65.4 160 L70.1 160 L74.8 160 L79.5 160 L84.2 160 L88.9 160 L93.6 160 L98.3 160 L103 160 L107.7 159.9 L112.4 159.9 L117.1 159.8 L121.8 159.8 L126.5 159.7 L131.2 159.6 L135.9 159.4 L140.6 159.2 L145.3 159 L150 158.7 L154.7 158.4 L159.4 158.1 L164.1 157.7 L168.8 157.3 L173.5 156.9 L178.2 156.5 L182.9 156.1 L187.6 155.7 L192.3 155.4 L197 155.2 L201.7 155 L206.4 154.9 L211.1 154.9 L215.8 155 L220.5 155.2 L225.2 155.4 L229.9 155.8 L234.6 156.2 L239.3 156.7 L244 157.2 L248.7 157.7 L253.4 158.3 L258.1 158.8 L262.8 159.2 L267.5 159.6 L272.2 159.8 L276.9 159.8 L281.6 159.7 L286.3 159.4 L291 159 L295.7 158.4 L300.4 157.8 L305.1 157.1 L309.8 156.4 L314.5 155.7 L319.2 155 L323.9 154.3 L328.6 153.7 L333.3 153.1 L338 152.5 L342.7 151.9 L347.4 151.4 L352.1 150.9 L356.8 150.4 L361.5 149.9 L366.2 149.3 L370.9 148.8 L375.6 148.3 L380.3 147.7 L385 147.1 L389.7 146.5 L394.4 145.8 L399.1 145 L403.8 144.1 L408.5 143.2 L413.2 142.1 L417.9 140.9 L422.6 139.6 L427.3 138.1 L432 136.5 L436.7 134.7 L441.4 132.7 L446.1 130.6 L450.8 128.4 L455.5 126.1 L460.2 124 L464.9 122 L469.6 120.5 L474.3 119.5 L479 119.1 L483.7 119.4 L488.4 120.2 L493.1 121.5 L497.8 123 L502.5 124.5 L507.2 125.9 L511.9 127.1 L516.6 127.9 L521.3 128.2 L526 128.1 L530.7 127.3 L535.4 126 L540.1 124.1 L544.8 121.7 L549.5 118.8 L554.2 115.5 L558.9 112 L563.6 108.4 L568.3 104.8 L573 101.5 L577.7 98.6 L582.4 96.2 L587.1 94.2 L591.8 92.6 L596.5 91.5 L601.2 90.8 L605.9 90.3 L610.6 90.1 L615.3 89.9 L620 89.9"/>
+<path class="curve c-d" d="M56 119.8 L60.7 119.8 L65.4 119.8 L70.1 119.8 L74.8 119.7 L79.5 119.7 L84.2 119.7 L88.9 119.7 L93.6 119.8 L98.3 119.8 L103 119.8 L107.7 119.9 L112.4 120 L117.1 120.2 L121.8 120.4 L126.5 120.6 L131.2 120.9 L135.9 121.3 L140.6 121.8 L145.3 122.4 L150 123.1 L154.7 124 L159.4 124.9 L164.1 125.9 L168.8 127 L173.5 128.1 L178.2 129.2 L182.9 130.2 L187.6 131.1 L192.3 131.8 L197 132.3 L201.7 132.5 L206.4 132.5 L211.1 132.2 L215.8 131.6 L220.5 130.7 L225.2 129.5 L229.9 128 L234.6 126.3 L239.3 124.4 L244 122.3 L248.7 120.1 L253.4 118 L258.1 116 L262.8 114.3 L267.5 113 L272.2 112.3 L276.9 112.2 L281.6 112.9 L286.3 114.3 L291 116.2 L295.7 118.7 L300.4 121.5 L305.1 124.6 L309.8 127.7 L314.5 130.9 L319.2 134.1 L323.9 137.3 L328.6 140.3 L333.3 143.4 L338 146.3 L342.7 149.2 L347.4 152.1 L352.1 154.9 L356.8 157.7 L361.5 160.4 L366.2 163 L370.9 165.6 L375.6 167.9 L380.3 170.1 L385 172 L389.7 173.6 L394.4 174.9 L399.1 176 L403.8 176.9 L408.5 177.7 L413.2 178.5 L417.9 179.3 L422.6 180.4 L427.3 181.6 L432 183.2 L436.7 185.1 L441.4 187.4 L446.1 189.9 L450.8 192.7 L455.5 195.7 L460.2 198.6 L464.9 201.3 L469.6 203.3 L474.3 204.5 L479 204.8 L483.7 203.9 L488.4 202.1 L493.1 199.6 L497.8 196.8 L502.5 194 L507.2 191.4 L511.9 189.2 L516.6 187.6 L521.3 186.8 L526 186.7 L530.7 187.5 L535.4 189.1 L540.1 191.6 L544.8 194.8 L549.5 198.7 L554.2 203.2 L558.9 208 L563.6 213 L568.3 218 L573 222.7 L577.7 226.9 L582.4 230.6 L587.1 233.6 L591.8 236 L596.5 237.7 L601.2 238.8 L605.9 239.6 L610.6 240 L615.3 240.1 L620 240.2"/>
+<text class="tx c-af" x="630" y="194.1">Deep focus</text>
+<text class="tx c-bf" x="630" y="144">Bass boost</text>
+<text class="tx c-cf" x="630" y="93.9">Bright &amp; airy</text>
+<text class="tx c-df" x="630" y="244.2">Lo-fi</text>
+              <text class="ts tm" x="56" y="324">Five filters added together at 48 kHz. The headroom gain and the limiter are not drawn.</text>
+            </svg>
+          </div>
+          <figcaption>What four of the styles do to the sound, computed from the filters' own settings with Web Audio's biquad formulas. Each curve is the sum of the five tone filters; Space does not change tone.</figcaption>
+        </figure>
+
+        <h3>The twelve styles</h3>
+        <p>Picking a style moves every slider to its values, and moving any slider afterwards makes the setting “custom”. The panel shows each style as a card, with a slider for every control.</p>
+        <div class="tablewrap">
+          <table>
+            <caption>Ready-made styles (dB for the tone controls, % for Space)</caption>
+            <thead><tr><th>Style</th><th>What it is for</th><th class="num">Bass</th><th class="num">Warmth</th><th class="num">Instr.</th><th class="num">Clarity</th><th class="num">Treble</th><th class="num">Space</th></tr></thead>
+            <tbody>
+              <tr><td>Flat</td><td>The song exactly as it was recorded</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">100</td></tr>
+              <tr><td>Deep focus</td><td>Warm and soft, easy on the ears for long study sessions</td><td class="num">2</td><td class="num">3</td><td class="num">−1</td><td class="num">−3</td><td class="num">−4</td><td class="num">100</td></tr>
+              <tr><td>Bass boost</td><td>More thump from the kick drum and bass</td><td class="num">7</td><td class="num">2</td><td class="num">0</td><td class="num">0</td><td class="num">1</td><td class="num">100</td></tr>
+              <tr><td>Lo-fi</td><td>Dusty and mellow, like an old record</td><td class="num">3</td><td class="num">4</td><td class="num">−2</td><td class="num">−5</td><td class="num">−9</td><td class="num">80</td></tr>
+              <tr><td>Bright &amp; airy</td><td>Crisp cymbals and a light, open top end</td><td class="num">−1</td><td class="num">−1</td><td class="num">0</td><td class="num">3</td><td class="num">6</td><td class="num">120</td></tr>
+              <tr><td>Punchy</td><td>Tight drums that hit hard</td><td class="num">5</td><td class="num">−2</td><td class="num">0</td><td class="num">4</td><td class="num">2</td><td class="num">100</td></tr>
+              <tr><td>Acoustic</td><td>Natural guitars and piano, close and clear</td><td class="num">0</td><td class="num">2</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">100</td></tr>
+              <tr><td>Electronic</td><td>Deep bass and sparkly highs for beats</td><td class="num">6</td><td class="num">−1</td><td class="num">−2</td><td class="num">2</td><td class="num">5</td><td class="num">120</td></tr>
+              <tr><td>Cinematic</td><td>Big, deep and wide, like a film score</td><td class="num">5</td><td class="num">1</td><td class="num">−1</td><td class="num">1</td><td class="num">3</td><td class="num">140</td></tr>
+              <tr><td>Wide stage</td><td>The music spreads all around you</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">1</td><td class="num">2</td><td class="num">160</td></tr>
+              <tr><td>Late night</td><td>Gentle and quiet: less boom, less hiss</td><td class="num">−3</td><td class="num">1</td><td class="num">0</td><td class="num">−2</td><td class="num">−3</td><td class="num">90</td></tr>
+              <tr><td>Laptop speakers</td><td>More body from small speakers, without the boom</td><td class="num">−2</td><td class="num">4</td><td class="num">2</td><td class="num">2</td><td class="num">0</td><td class="num">110</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The choice is saved with the other settings. The landing page's preview steps through six of these styles (Deep focus, Bass boost, Lo-fi, Bright &amp; airy, Punchy and Cinematic), one every 2.8 seconds while it is on screen, and sits still under reduced motion.</p>
+      </section>
+
+      <section class="track" id="wall">
+        <h2><span class="eyebrow">Track 09</span>The album wall</h2>
+        <p>Behind both pages is a wall of album covers on a tilted plane. Each column of covers slides along the plane forever, every other column the other way, so on screen the covers drift diagonally. It is a single canvas, drawn in a background worker so the covers keep sliding evenly however busy the page is.</p>
+
+        <h3>The plane</h3>
+        <p>The plane is leaned back 34 degrees, turned 24 degrees and viewed with a perspective of 1400 pixels, which is the same picture CSS would draw for <code>rotateX(34deg) rotateZ(24deg)</code>. A column slides one cover along every 6 seconds. The size of a cover scales with the window: its edge is 10.5 % of the window width, kept between 132 and 196 pixels, with a gap of 14 % of that between covers. In a 1440-pixel window that is 151-pixel covers, a 21-pixel gap and a 172-pixel pitch.</p>
+
+        <figure class="fig" data-n="13">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 400" role="img" aria-label="Left: the wall's tilted plane with five columns of covers, arrows showing neighbouring columns sliding opposite ways and one cover lifted off its shadow. Right: the page sends five kinds of message to the worker and the worker sends two kinds back.">
+              <defs><marker id="a13" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g13" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <text class="ts tm" x="20" y="24">the plane, seen from the window</text>
+<polygon class="tile" points="147.7,40 180.7,50.3 163.9,74.9 129.7,63.6"/>
+<polygon class="tile" points="127,67.1 161.4,78.5 142.6,106 106.9,93.4"/>
+<polygon class="tile" points="103.9,97.3 139.8,110.1 118.7,141 81.4,126.8"/>
+<polygon class="tile" points="78.1,131.2 115.6,145.5 91.6,180.5 52.7,164.4"/>
+<polygon class="tile" points="48.9,169.4 88.1,185.7 60.8,225.5 20,207.2"/>
+<polygon class="tile" points="185.4,51.7 220,62.5 204.7,88.3 168.8,76.5"/>
+<polygon class="tile" points="166.3,80.1 202.4,92.1 185.3,121.1 147.7,107.8"/>
+<polygon class="tile" points="144.9,111.9 182.7,125.3 163.4,157.9 124,143"/>
+<polygon class="tile" points="120.9,147.6 160.5,162.8 138.5,199.8 97.2,182.8"/>
+<polygon class="tile" points="93.7,188 135.3,205.3 110.1,247.7 66.7,228.2"/>
+<polygon class="tile" points="225,64 261.2,75.3 247.6,102.4 209.8,90"/>
+<polygon class="tile" points="207.6,93.8 245.6,106.4 230.2,136.9 190.6,123"/>
+<polygon class="tile" points="188.1,127.3 228,141.4 210.6,175.9 169,160.1"/>
+<polygon class="tile" points="166.2,164.9 208.1,181 188.3,220.3 144.4,202.2"/>
+<polygon class="tile" points="141.2,207.8 185.4,226.2 162.7,271.3 116.3,250.5"/>
+<polygon class="tile" points="266.4,76.9 304.5,88.7 292.7,117.3 253,104.2"/>
+<polygon class="tile" points="251,108.2 291,121.5 277.7,153.7 235.9,138.9"/>
+<polygon class="tile shadow" points="233.7,143.5 275.8,158.4 260.7,194.9 216.6,178.2"/>
+<polygon class="tile" points="214.1,183.3 258.5,200.4 241.3,242.1 194.6,222.9"/>
+<polygon class="tile" points="191.7,228.8 238.7,248.3 218.9,296.6 169.3,274.3"/>
+<polygon class="tile" points="309.9,90.4 350,102.8 340.3,133 298.4,119.2"/>
+<polygon class="tile" points="296.7,123.4 338.9,137.4 328,171.4 283.7,155.8"/>
+<polygon class="tile" points="281.8,160.6 326.4,176.4 313.9,215.1 267.1,197.3"/>
+<polygon class="tile" points="264.9,202.8 312.1,220.9 297.8,265.4 248,244.9"/>
+<polygon class="tile" points="245.5,251.2 295.6,272 279,323.6 226,299.8"/>
+<polygon class="tile lifted" points="234.5,136.5 277.6,151.7 262.3,188.7 217,171.7"/>
+<line class="ar" x1="165.9" y1="42.5" x2="179.5" y2="23.7" marker-end="url(#a13)"/>
+<line class="ar" x1="84.9" y1="242.8" x2="59.5" y2="283" marker-end="url(#a13)"/>
+<line class="ar" x1="244.5" y1="66.7" x2="255.6" y2="46.1" marker-end="url(#a13)"/>
+<line class="ar" x1="191.1" y1="291" x2="170.3" y2="337" marker-end="url(#a13)"/>
+<line class="ar" x1="330.9" y1="93.4" x2="339.1" y2="70.7" marker-end="url(#a13)"/>
+              <text class="ts tm" x="20" y="392">gold: a hovered cover, lifted 40 px off its shadow</text>
+
+              <rect class="bx" x="400" y="40" width="340" height="110" rx="8"/>
+              <text class="tb" x="416" y="66">The page (album-wall.js)</text>
+              <text class="ts" x="416" y="88">measures the window, hands over the covers,</text>
+              <text class="ts" x="416" y="104">sends mouse positions and clicks,</text>
+              <text class="ts" x="416" y="120">and decides what a click plays</text>
+              <path class="ar" d="M440 150 V250" marker-end="url(#a13)"/>
+              <text class="ts" x="448" y="184">start · size · covers</text>
+              <text class="ts" x="448" y="200">pointer · pick</text>
+              <text class="ts" x="448" y="216">paused · still · visible</text>
+              <path class="ar g" d="M700 250 V150" marker-end="url(#g13)"/>
+              <text class="ts tg" x="692" y="200" text-anchor="end">hover · picked</text>
+              <rect class="bx hi" x="400" y="250" width="340" height="110" rx="8"/>
+              <text class="tb" x="416" y="276">The worker (album-wall-worker.js)</text>
+              <text class="ts" x="416" y="298">draws every frame on an OffscreenCanvas:</text>
+              <text class="ts" x="416" y="314">shadows, then covers, then the lifted cover,</text>
+              <text class="ts" x="416" y="330">all from one sprite sheet</text>
+              <text class="ts tm" x="400" y="384">No worker support? The same painter runs on the page.</text>
+            </svg>
+          </div>
+          <figcaption>Neighbouring columns slide opposite ways: even columns, counted from the left of the plane, carry covers up and to the right on screen, odd columns down and to the left. The dark shape under the gold cover is the shadow, which stays on the wall.</figcaption>
+        </figure>
+
+        <p>The plane has to be big enough to fill the window at every moment. The code projects the window's four corners onto the plane, adds one cover's pitch on every side, and divides by the pitch to get the number of columns and rows. A column holds its covers twice and slides one full loop at a time, so it is never short. Column starting points are staggered by the golden ratio (0.618034 of a loop per column), which spreads them evenly with no visible pattern. A cover never sits directly above or below itself, even where a column's list starts over, and each column carries on from where the one before it ended, so a big set of covers is all used before any repeats.</p>
+
+        <h3>How a frame is drawn</h3>
+        <ul>
+          <li>All the covers sit on one sprite sheet (4-pixel gaps, 6-pixel rounded corners) held as an <code>ImageBitmap</code>, so drawing a cover is one cheap copy. Covers reach the painter as 300 by 300 bitmaps, and the canvas's pixel ratio is capped at 1.5.</li>
+          <li>On the landing page a second copy of the sheet is toned with <code>sepia(0.18) saturate(0.85)</code> to sit on the cream page. The hovered cover keeps its own colours.</li>
+          <li>One shared soft shadow image is drawn 8 pixels below every cover. Each frame draws all the shadows, then all the covers, then the lifted cover.</li>
+          <li>A hovered cover rises 40 pixels, easing with a time constant of 0.12 seconds. Its shadow stays on the wall and darkens as the cover rises.</li>
+          <li>A new set of covers fades in over the old for 1.1 seconds. The wall starts and stops like a platter, easing with a time constant of 0.5 seconds.</li>
+          <li>It slides only when moving is on and it is neither paused nor still. It stops asking for frames when it is off screen or at rest. Reduced motion makes it still, and the player also pauses it when its window loses focus.</li>
+        </ul>
+
+        <h3>The page and the worker</h3>
+        <p>If the browser can hand a canvas to a module worker (the page tests this first), the canvas is transferred to <code>album-wall-worker.js</code> as an <code>OffscreenCanvas</code>. Otherwise the same painter runs on the page. The two sides talk in messages:</p>
+        <div class="tablewrap">
+          <table>
+            <caption>Messages between the page and the painter</caption>
+            <thead><tr><th>Direction</th><th>Message</th><th>Carries</th></tr></thead>
+            <tbody>
+              <tr><td>page to worker</td><td>start</td><td>the canvas itself, and the options (tone, moving)</td></tr>
+              <tr><td>page to worker</td><td>size</td><td>width, height and pixel ratio</td></tr>
+              <tr><td>page to worker</td><td>covers</td><td>the bitmaps, and a version number for this set</td></tr>
+              <tr><td>page to worker</td><td>pointer</td><td>the mouse position on the canvas, or none</td></tr>
+              <tr><td>page to worker</td><td>pick</td><td>where a click landed</td></tr>
+              <tr><td>page to worker</td><td>paused, still, visible</td><td>a yes or no for each</td></tr>
+              <tr><td>worker to page</td><td>hover</td><td>which cover the mouse is over, or none</td></tr>
+              <tr><td>worker to page</td><td>picked</td><td>which cover was clicked, and the version it belongs to</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Getting the mouse to the wall</h3>
+        <p>The wall is behind the page, so the page must work out when the mouse is really over it. It walks down the stack of elements under the pointer (<code>elementsFromPoint</code>) until it reaches the canvas, and gives up at any element outside the wall that is not the page or the body or marked as see-through (the landing page marks its layout boxes). Only a real mouse counts, at most once per animation frame, and the check runs again when the page scrolls.</p>
+        <p>A <strong>click</strong> counts when a left-button press and the click that follows are within 6 pixels of each other and nothing is in the way. The page sends <code>pick</code>, and the painter answers <code>picked</code> with the cover and the version of the set it was drawn from. The page ignores an answer about an older set, which can happen if the covers change while the message is in flight. In the player, a pick plays the album starting at that song, on the in-app device once it is ready. The landing page gives the wall no pick handler, so clicking does nothing there.</p>
+
+        <h3>Where the covers come from</h3>
+        <p>After login the player asks Spotify for your last 50 recently played songs, your top 50 tracks of the last month or so (the short-term list), and your queue with the song now playing. It keeps one cover per album, at most 48, using the last-listed picture that is at least 250 pixels wide (or the first if none is). The set is saved in local storage (<code>bgm.covers</code>, secure addresses only) and shown first next time. Fresh covers replace it on screen only when none were saved or none had an address to play.</p>
+
+        <h3>Keeping the frame rate steady</h3>
+        <p>The wall and the turntable share a frame pacer (<code>frame-pacer.js</code>). On a screen that refreshes faster than 60 Hz it draws on every Nth refresh, with N the largest number that still keeps 60 frames a second. It learns the refresh rate from the median of the last 15 gaps between refreshes, ignoring gaps over 100 ms, which are the animation sleeping rather than the screen.</p>
+        <pre class="formula">N = max(1, floor(1000 / refreshMs / 60 + 0.05))</pre>
+        <div class="tablewrap">
+          <table>
+            <caption>What the pacer does at common refresh rates</caption>
+            <thead><tr><th>Screen</th><th>Draws on</th><th>Result</th></tr></thead>
+            <tbody>
+<tr><td>60 Hz</td><td>every refresh</td><td>60 frames a second</td></tr>
+<tr><td>75 Hz</td><td>every refresh</td><td>75 frames a second</td></tr>
+<tr><td>90 Hz</td><td>every refresh</td><td>90 frames a second</td></tr>
+<tr><td>120 Hz</td><td>every 2nd refresh</td><td>60 frames a second</td></tr>
+<tr><td>144 Hz</td><td>every 2nd refresh</td><td>72 frames a second</td></tr>
+<tr><td>165 Hz</td><td>every 2nd refresh</td><td>82.5 frames a second</td></tr>
+<tr><td>240 Hz</td><td>every 4th refresh</td><td>60 frames a second</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The 0.05 is there so a 120 Hz screen, whose refresh is 8.33 ms, comes out as exactly N = 2 rather than just under. Drawing on every Nth refresh gives evenly spaced frames: a 144 Hz screen gets 72 of them a second.</p>
+      </section>
+
+      <section class="track" id="turntable">
+        <h2><span class="eyebrow">Track 10</span>The turntable</h2>
+        <p>The now-playing desk is a record player. The record spins while a song plays, and the tonearm sits on a groove that matches how far into the song you are. You can drag the arm to seek. All of the motion is plain arithmetic in <code>turntable-motion.js</code>, and <code>turntable.js</code> connects it to the page.</p>
+
+        <figure class="fig" data-n="14">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 420" role="img" aria-label="The record and tonearm drawn to scale. The arm is shown at rest, at the first groove where a song starts and at the last groove where it ends.">
+              <defs><marker id="a14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+<circle class="rec" cx="183.2" cy="210" r="171"/>
+<circle class="groove" cx="183.2" cy="210" r="159.6"/>
+<circle class="groove" cx="183.2" cy="210" r="77.9"/>
+<circle class="label" cx="183.2" cy="210" r="65"/>
+<line class="arm rest" x1="365.6" y1="92.2" x2="396.2" y2="357.5"/>
+<line class="arm end" x1="365.6" y1="92.2" x2="183.9" y2="287.9"/>
+<line class="arm start" x1="365.6" y1="92.2" x2="272.3" y2="342.4"/>
+<circle class="pivot" cx="365.6" cy="92.2" r="8"/>
+<circle class="dot rest" cx="396.2" cy="357.5" r="9"/><text class="tx dark" x="396.2" y="361.5" text-anchor="middle">A</text>
+<circle class="dot start" cx="272.3" cy="342.4" r="9"/><text class="tx dark" x="272.3" y="346.4" text-anchor="middle">B</text>
+<circle class="dot end" cx="183.9" cy="287.9" r="9"/><text class="tx dark" x="183.9" y="291.9" text-anchor="middle">C</text>
+              <text class="ts tm" x="378" y="94">pivot</text>
+
+              <text class="ts tm" x="430" y="40">Lengths are in album-art sizes; the deck is 1 tall.</text>
+              <circle class="dot rest" cx="444" cy="84" r="9"/><text class="dark" x="444" y="88" text-anchor="middle">A</text>
+              <text x="462" y="89">Rest: the arm at −10°, needle off the record</text>
+              <circle class="dot start" cx="444" cy="116" r="9"/><text class="dark" x="444" y="120" text-anchor="middle">B</text>
+              <text x="462" y="121">First groove: 17.0°, 0.42 from the centre</text>
+              <circle class="dot end" cx="444" cy="148" r="9"/><text class="dark" x="444" y="152" text-anchor="middle">C</text>
+              <text x="462" y="153">Last groove: 39.4°, 0.205 from the centre</text>
+
+              <text class="ts tm" x="430" y="196">record centre (1.14, 0.5), radius 0.45</text>
+              <text class="ts tm" x="430" y="214">pivot (1.62, 0.19), arm length 0.7027</text>
+              <text class="ts tm" x="430" y="232">the needle sits 3.43° to the record's side of the arm</text>
+              <text class="ts tm" x="430" y="250">the needle is over the record from 14.0°</text>
+              <text class="ts tm" x="430" y="268">progress maps evenly to groove radius</text>
+            </svg>
+          </div>
+          <figcaption>Everything is drawn from the code's own numbers. The dashed rings are the first and last grooves. As a song plays, the arm creeps from B to C because the groove radius shrinks evenly with time.</figcaption>
+        </figure>
+
+        <h3>The record</h3>
+        <p>The record turns at 200 degrees a second, which is 33⅓ revolutions a minute. It eases up to speed with a time constant of 0.45 seconds and coasts to a stop over 0.7 seconds, counting as stopped below 2 degrees a second. A frame that arrives after a long gap, such as a hidden tab waking up, moves things no further than 0.1 seconds.</p>
+
+        <h3>The arm</h3>
+        <p>The arm's angle, its lift and its follow-the-pointer motion are all <em>critically damped springs</em>: the fastest way to reach a goal without overshooting. They are solved exactly rather than step by step, so they stay stable at any frame rate. The stiffness numbers are per second:</p>
+        <div class="tablewrap">
+          <table>
+            <caption>The three springs</caption>
+            <thead><tr><th>Spring</th><th class="num">Stiffness</th><th>Feel</th></tr></thead>
+            <tbody>
+              <tr><td>Swing</td><td class="num">11</td><td>a full swing takes about half a second</td></tr>
+              <tr><td>Held</td><td class="num">30</td><td>while you drag, the arm trails the pointer by about 1/30 s</td></tr>
+              <tr><td>Lift</td><td class="num">28</td><td>raising or lowering the needle takes about a fifth of a second</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The needle never drags across the record. For a real move of more than 1.2 degrees the arm lifts first, swings once the needle is up (at 0.85 of full lift), and lowers when it is within 1.2 degrees of its goal and slower than 6 degrees a second. The slow creep of a playing song stays in the groove. While you hold the arm, it stays raised and follows your pointer.</p>
+
+        <h3>Song position to arm angle, and back</h3>
+        <p>The groove at song progress <em>p</em> (0 at the start, 1 at the end) has radius <em>0.42 − (0.42 − 0.205) × p</em>, because the spiral's pitch is even. The arm angle that puts the needle on that radius comes from the law of cosines in the triangle made by the pivot, the record's centre and the needle, using the arm's length. Going the other way, the needle's position gives a distance from the record's centre, which gives progress. When the needle is off the record, progress is unknown, and the cue time on the desk follows the needle.</p>
+
+        <h3>Dragging</h3>
+        <ul>
+          <li>A drag begins after 4 pixels of movement. The arm follows the pointer but is kept between its rest and the last groove.</li>
+          <li>Dropping the needle on the record seeks to that point and plays. Dropping it off the record pauses. Cancelling returns the arm. A plain click toggles play.</li>
+          <li>After you move it, the arm waits up to 2.5 seconds for the player to agree: the same play state and a position within 0.02 of the song's length (2 %).</li>
+          <li>The record's grooves glow gold from the needle's position inward: the page sets <code>--needle</code> to 100 × the groove radius ÷ 0.45 as a percentage, and the stylesheet paints gold rings, <code>rgb(229 174 61 / 0.11)</code>, from there to 93.33 %.</li>
+          <li>Drawing uses the same pacer as the wall: every Nth refresh, every refresh while you hold the arm, nothing when everything is still, and a jump rather than a glide under reduced motion.</li>
+        </ul>
+      </section>
+
+      <section class="track" id="offline">
+        <h2><span class="eyebrow">Track 11</span>Offline and error screens</h2>
+        <p>BGM Mode is built so that it never shows a blank page. If the server is off it still opens from a saved copy. If a page does not exist, or the app fails while starting, an error screen says what happened and how to get back.</p>
+
+        <h3>The service worker</h3>
+        <p><code>sw.js</code> saves a copy of the app in the browser so it can open without the server. Its cache is named <code>bgm-mode-v23</code>, and the AI model has a separate cache, <code>bgm-mode-model</code>, so an app update never deletes a 59 MB download.</p>
+
+        <figure class="fig" data-n="15">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 460" role="img" aria-label="How the service worker answers a request. Requests it does not handle go to the browser. Otherwise it asks the network, saves a copy of a good answer, and when the network fails sends the saved copy. With no saved copy a file fails plainly and a page gets the offline version of the 404 page.">
+              <defs><marker id="a15" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g15" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <rect class="bx" x="20" y="16" width="190" height="40" rx="8"/>
+              <text class="tb" x="115" y="41" text-anchor="middle">A request from the page</text>
+              <path class="ar" d="M115 56 V92" marker-end="url(#a15)"/>
+
+              <rect class="bx" x="20" y="92" width="190" height="60" rx="8"/>
+              <text class="tb" x="115" y="114" text-anchor="middle">Ours to handle?</text>
+              <text class="ts tm" x="115" y="132" text-anchor="middle">GET on this site,</text>
+              <text class="ts tm" x="115" y="146" text-anchor="middle">not /api/ or /models/</text>
+              <path class="ar" d="M115 152 V184" marker-end="url(#a15)"/>
+              <text class="ts" x="123" y="172">yes</text>
+
+              <rect class="bx" x="20" y="184" width="190" height="48" rx="8"/>
+              <text class="tb" x="115" y="205" text-anchor="middle">Ask the network</text>
+              <text class="ts tm" x="115" y="221" text-anchor="middle">network first</text>
+              <path class="ar" d="M115 232 V264" marker-end="url(#a15)"/>
+              <text class="ts" x="123" y="252">no answer</text>
+
+              <rect class="bx" x="20" y="264" width="190" height="56" rx="8"/>
+              <text class="tb" x="115" y="286" text-anchor="middle">Look in the cache</text>
+              <text class="ts tm" x="115" y="304" text-anchor="middle">ignoring the ?query</text>
+              <path class="ar" d="M115 320 V352" marker-end="url(#a15)"/>
+              <text class="ts" x="123" y="340">nothing there</text>
+
+              <rect class="bx" x="20" y="352" width="190" height="56" rx="8"/>
+              <text class="tb" x="115" y="376" text-anchor="middle">A page or a file?</text>
+              <text class="ts tm" x="115" y="394" text-anchor="middle">what was asked for</text>
+
+              <path class="ar" d="M210 122 H300" marker-end="url(#a15)"/>
+              <text class="ts" x="255" y="114" text-anchor="middle">no</text>
+              <rect class="bx" x="300" y="98" width="190" height="48" rx="8"/>
+              <text class="tb" x="395" y="119" text-anchor="middle">The browser handles it</text>
+              <text class="ts tm" x="395" y="135" text-anchor="middle">as if there were no worker</text>
+              <text class="ts tm" x="510" y="114">Other sites such as Spotify,</text>
+              <text class="ts tm" x="510" y="130">and the model download, are left alone.</text>
+
+              <path class="ar g" d="M210 208 H300" marker-end="url(#g15)"/>
+              <text class="ts tg" x="255" y="200" text-anchor="middle">ok</text>
+              <rect class="bx hi" x="300" y="184" width="190" height="48" rx="8"/>
+              <text class="tb" x="395" y="205" text-anchor="middle">Send it, keep a copy</text>
+              <text class="ts tm" x="395" y="221" text-anchor="middle">saved in bgm-mode-v23</text>
+              <text class="ts tm" x="510" y="200">Network first keeps the player fresh</text>
+              <text class="ts tm" x="510" y="216">while the local server is running.</text>
+
+              <path class="ar" d="M210 290 H300" marker-end="url(#a15)"/>
+              <text class="ts" x="255" y="282" text-anchor="middle">found</text>
+              <rect class="bx" x="300" y="266" width="190" height="48" rx="8"/>
+              <text class="tb" x="395" y="287" text-anchor="middle">Send the saved copy</text>
+              <text class="ts tm" x="395" y="303" text-anchor="middle">query string ignored</text>
+              <text class="ts tm" x="510" y="286">So the installed player still opens</text>
+              <text class="ts tm" x="510" y="302">when the server is off.</text>
+
+              <path class="ar" d="M210 372 H255 V368 H300" marker-end="url(#a15)"/>
+              <text class="ts" x="262" y="362">a file</text>
+              <rect class="bx" x="300" y="346" width="190" height="44" rx="8"/>
+              <text class="tb" x="395" y="366" text-anchor="middle">Plain failure</text>
+              <text class="ts tm" x="395" y="382" text-anchor="middle">the browser shows its own error</text>
+
+              <path class="ar" d="M210 392 H255 V426 H300" marker-end="url(#a15)"/>
+              <text class="ts" x="262" y="420">a page</text>
+              <rect class="bx dash" x="300" y="400" width="300" height="52" rx="8"/>
+              <text class="tb" x="450" y="422" text-anchor="middle">The offline page</text>
+              <text class="ts tm" x="450" y="438" text-anchor="middle">404.html with its text switched, status 503</text>
+            </svg>
+          </div>
+          <figcaption>The worker only answers requests for this site's own files, and it asks the network first. The saved copy is a fallback, never the first choice, so a running server always wins.</figcaption>
+        </figure>
+
+        <ul>
+          <li><strong>Saving.</strong> On install it saves every file the app needs, one by one, ignoring any that fail, and takes over without waiting. It lists 76 files, including every file in <code>src/</code> (a test fails if one is missing). On activation it deletes every cache except the app cache and the model cache, and claims the open pages.</li>
+          <li><strong>Never touched.</strong> Anything that is not a GET, anything from another site, and any address starting <code>/api/</code> or <code>/models/</code>.</li>
+          <li><strong>Registration.</strong> Both <code>landing.js</code> and <code>app.js</code> register the worker.</li>
+        </ul>
+
+        <h3>The 404 and offline pages</h3>
+        <p><code>404.html</code> has no scripts and is marked not to be indexed by search engines. It carries two messages in one file. The default says “This page isn't on the record” and links to the landing page and the player. When the service worker serves it as the offline fallback it changes one attribute, <code>data-reason</code>, from “missing” to “offline”. <code>error.css</code> then shows “Can't reach BGM Mode” with a hint to run <code>npm start</code> and a “Try again” button. The local server answers any missing address with this page (a plain “Not found” for anything other than GET), and tells the browser not to cache it. Whether Netlify serves it for unknown addresses on its own is stated only in a comment in the file, not set up in <code>netlify.toml</code>.</p>
+
+        <h3>The crash screen</h3>
+        <p>If the player itself fails while starting, the page would be left empty. <code>crash.js</code> is a plain script loaded before the app's modules, so it works even when they do not. It puts the same error screen over the page, with a record and a raised arm, the heading “The music stopped”, a Reload button and a link “Back to the start”. It appears when:</p>
+        <ul>
+          <li>one of BGM Mode's own scripts fails to load (the screen names the file);</li>
+          <li>an error is thrown by BGM Mode's own code, or a promise fails and nothing handles it;</li>
+          <li>or 15 seconds pass and the app still has not called <code>window.bgmStarted()</code>, which it does after its first screen is up.</li>
+        </ul>
+        <p>It ignores pictures and stylesheets that fail to load, errors from other sites' scripts (such as Spotify's player) and everything after the app has started, when the app shows its own notices. If the screen was shown too early, <code>bgmStarted</code> takes it down. The error text goes in as plain text, never as HTML.</p>
+
+        <h3>Installing it</h3>
+        <p>The web app manifest names the app “BGM Mode”, starts it at its own folder, opens it as a standalone window, and sets the background and theme colour to cream (<code>#f4ebdb</code>). The 192 and 512 pixel icons, gold equaliser bars on an espresso tile, are drawn by <code>tools/make-icons.mjs</code> with no libraries.</p>
+      </section>
+
+      <section class="track" id="security">
+        <h2><span class="eyebrow">Track 12</span>Security</h2>
+        <p>Security here has two jobs: keep other sites and other machines away from the local server, and stop the browser running anything but BGM Mode's own code. The defences are layers, so one failing does not open everything.</p>
+
+        <figure class="fig" data-n="16">
+          <p class="swipe">Swipe to see the whole diagram</p>
+          <div class="scroll">
+            <svg viewBox="0 0 760 400" role="img" aria-label="Five nested layers of defence, from the outside in: the network, the host check, the request rules, the headers on every response, and the checks inside the page.">
+              <defs><marker id="a16" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0 L10 5 L0 10 z"/></marker><marker id="g16" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mkg" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+              <rect class="layer" x="10" y="10" width="740" height="380" rx="14"/>
+              <text class="tb" x="28" y="34">Network</text>
+              <text class="ts tm" x="28" y="50">the local server listens on 127.0.0.1 only; other machines on your Wi-Fi cannot connect to it</text>
+              <rect class="layer" x="34" y="62" width="692" height="314" rx="12"/>
+              <text class="tb" x="52" y="86">Host check</text>
+              <text class="ts tm" x="52" y="102">a request for any other host name gets a 307 redirect to 127.0.0.1, which stops DNS rebinding</text>
+              <rect class="layer" x="58" y="114" width="644" height="248" rx="10"/>
+              <text class="tb" x="76" y="138">Requests</text>
+              <text class="ts tm" x="76" y="154">GET only · allowlisted files · no “..” in a path · model download only from the app's own address</text>
+              <rect class="layer" x="82" y="166" width="596" height="182" rx="10"/>
+              <text class="tb" x="100" y="190">Headers on every response</text>
+              <text class="ts tm" x="100" y="206">CSP · same-origin COOP and CORP · no framing · nosniff · referrer policy · permissions policy</text>
+              <rect class="layer core" x="106" y="218" width="548" height="116" rx="8"/>
+              <text class="tb" x="124" y="242">Inside the page</text>
+              <text class="ts" x="124" y="262">PKCE with a state value, and no client secret anywhere</text>
+              <text class="ts" x="124" y="278">the AI model file is checked by SHA-256 before it is used</text>
+              <text class="ts" x="124" y="294">the crash screen shows error text as text, never as HTML</text>
+              <text class="ts" x="124" y="310">scripts: BGM Mode's own files, Spotify's player and the pinned AI runtime</text>
+            </svg>
+          </div>
+          <figcaption>A request passes the outer layers first. Even if one is bypassed, the headers still tell the browser what it may run, and the page still checks its own data.</figcaption>
+        </figure>
+
+        <h3>The local server</h3>
+        <p><code>serve.mjs</code> uses only Node's built-in modules. It listens on 127.0.0.1 (Spotify accepts a loopback address over plain http, but not the name “localhost”) on port 5173, or the port in <code>$PORT</code>.</p>
+        <ul>
+          <li><strong>Host check.</strong> A request whose <code>Host</code> header is anything other than 127.0.0.1 with the port gets a 307 redirect to the same address on 127.0.0.1. A hostile web page that points its own name at your computer (DNS rebinding) cannot talk to the server.</li>
+          <li><strong>Only public files.</strong> Anything not matched by an allowlist, any path containing <code>..</code>, any path that cannot be decoded, and any method other than GET gets a 404. The allowlist covers the four pages, the service worker, the manifest, the share image, files in <code>src/</code> and <code>assets/</code> by type, the icons, the fonts and the model. Tests, tools, the server itself and the README are not on it.</li>
+          <li><strong>The one POST.</strong> <code>/api/model</code> starts the model download, and only when the request's <code>Origin</code> header is exactly the app's own address. Anything else gets a 403. Other requests to that address just return the download's progress, never cached.</li>
+          <li><strong>Every file</strong> goes out with the security headers, the right MIME type, a length and no-cache. A file that fails halfway ends only that one response, never the server.</li>
+        </ul>
+
+        <h3>The headers</h3>
+        <p>The same headers come from the local server and from Netlify. A test reads both and fails if they drift apart. The Content-Security-Policy tells the browser exactly where each kind of resource may come from:</p>
+        <div class="tablewrap">
+          <table>
+            <caption>Content-Security-Policy</caption>
+            <thead><tr><th>Directive</th><th>Allows</th></tr></thead>
+            <tbody>
+              <tr><td>default-src</td><td>this site only</td></tr>
+              <tr><td>script-src</td><td>this site, WebAssembly compiling (<code>wasm-unsafe-eval</code>), Spotify's player at sdk.scdn.co, the exact ONNX Runtime path on jsDelivr, and four SHA-256 hashes, one for each inline script in the landing page</td></tr>
+              <tr><td>style-src</td><td>this site and inline styles</td></tr>
+              <tr><td>img-src</td><td>this site, data: and blob: pictures, and Spotify's picture hosts (scdn.co, spotifycdn.com)</td></tr>
+              <tr><td>font-src</td><td>this site only</td></tr>
+              <tr><td>connect-src</td><td>this site, Spotify (spotify.com, scdn.co, spotifycdn.com), the ONNX Runtime path, and the model hosts (huggingface.co, hf.co)</td></tr>
+              <tr><td>media-src</td><td>this site, blob: and data:</td></tr>
+              <tr><td>frame-src</td><td>Spotify's player script host only</td></tr>
+              <tr><td>worker-src, manifest-src</td><td>this site only</td></tr>
+              <tr><td>object-src</td><td>nothing</td></tr>
+              <tr><td>base-uri, form-action</td><td>this site only</td></tr>
+              <tr><td>frame-ancestors</td><td>nothing: no other site may put BGM Mode in a frame</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <caption>Other headers on every response</caption>
+            <thead><tr><th>Header</th><th>Value</th><th>What it does</th></tr></thead>
+            <tbody>
+              <tr><td>X-Content-Type-Options</td><td>nosniff</td><td>The browser trusts the declared file type</td></tr>
+              <tr><td>Referrer-Policy</td><td>strict-origin-when-cross-origin</td><td>Other sites learn only the site's origin</td></tr>
+              <tr><td>X-Frame-Options</td><td>DENY</td><td>No framing, the older twin of frame-ancestors</td></tr>
+              <tr><td>Cross-Origin-Opener-Policy</td><td>same-origin</td><td>Other sites' windows cannot reach this one</td></tr>
+              <tr><td>Cross-Origin-Resource-Policy</td><td>same-origin</td><td>Other sites cannot load these files</td></tr>
+              <tr><td>Permissions-Policy</td><td>camera, microphone, location, payment, usb, serial, hid and bluetooth switched off; display-capture for this site only</td><td>Only BGM Mode's own pages may share a tab, which the live remover needs</td></tr>
+              <tr><td>Strict-Transport-Security</td><td>max-age=31536000 (Netlify only)</td><td>A hosted copy is always reached over https</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>On Netlify, <code>netlify.toml</code> also forces a 404 for files that must not be public: <code>/tests/*</code>, <code>/tools/*</code>, <code>/serve.mjs</code>, <code>/security-headers.mjs</code>, <code>/package.json</code>, <code>/README.md</code>, <code>/netlify.toml</code> and <code>/.gitignore</code>.</p>
+
+        <h3>What was checked</h3>
+        <ul>
+          <li>In Chrome, with the AI model running on the GPU and Spotify's player loaded, the policy blocked nothing: zero violations. Signing in survives the round trip to Spotify with the opener policy on, and the engine pop-up still opens.</li>
+          <li>Each new defence was broken on purpose to confirm a test then fails, and the file was restored byte for byte. Most were caught. Two guards in the crash screen and the path-traversal check turned out to be redundant with other defences, so their tests could not fail on their own.</li>
+          <li>With the server stopped, the offline page shows, and the player still opens from the saved copy. With the player's main script blocked, the crash screen shows.</li>
+        </ul>
+        <div class="note">
+          <b>What is not claimed</b>
+          <p>The login is kept in the browser's local storage, where any script running on the page could read it. The Content-Security-Policy is what limits which scripts may run. A server that keeps tokens out of the browser has not been built. There is also no client secret anywhere to protect, because PKCE does not use one.</p>
+        </div>
+      </section>
+
+      <section class="track" id="tests">
+        <h2><span class="eyebrow">Track 13</span>Tests</h2>
+        <p>The project has 125 tests in 19 files, run by <code>node --test</code> with no extra packages. They finish in about 12 seconds on Node 24, and all pass. The audio code is plain JavaScript without browser APIs, so the same class that runs in an audio worklet runs in the tests. Changes were made test first, and each new defence was checked by breaking it on purpose.</p>
+        <div class="tablewrap">
+          <table>
+            <caption>tests/</caption>
+            <thead><tr><th>File</th><th class="num">Tests</th><th>What it covers</th></tr></thead>
+            <tbody>
+              <tr><td>ai-core</td><td class="num">13</td><td>FFT, resampler, streaming separator, AI pipeline, pacing of model runs</td></tr>
+              <tr><td>album-wall</td><td class="num">13</td><td>projection, a plane that fills any window, columns, tile lookup, cover order and sources, sleeves</td></tr>
+              <tr><td>auth</td><td class="num">4</td><td>token renewal race, revoked login, automatic sign-in rules</td></tr>
+              <tr><td>bgm</td><td class="num">6</td><td>switching to an instrumental, manual queue, skip limit, BGM off, podcasts</td></tr>
+              <tr><td>dsp</td><td class="num">5</td><td>Fast remover quality, mono songs, speed</td></tr>
+              <tr><td>error-pages</td><td class="num">8</td><td>404.html, the crash screen, the service worker offline and online</td></tr>
+              <tr><td>frame-pacer</td><td class="num">3</td><td>the stride table, learning the screen rate, pauses</td></tr>
+              <tr><td>kinetic-type</td><td class="num">1</td><td>the headline letter effect fades with distance</td></tr>
+              <tr><td>live-remover</td><td class="num">4</td><td>tab-capture options, unsupported-browser messages</td></tr>
+              <tr><td>matcher</td><td class="num">7</td><td>title parsing, instrumental detection and choice, search queries</td></tr>
+              <tr><td>model-cache</td><td class="num">7</td><td>the browser's model cache, the checksum-checked download</td></tr>
+              <tr><td>now-playing</td><td class="num">5</td><td>playback on other devices, polling</td></tr>
+              <tr><td>playback</td><td class="num">3</td><td>playback buffer start and underrun</td></tr>
+              <tr><td>security</td><td class="num">11</td><td>CSP hashes and strictness, Netlify parity, the local server's defences</td></tr>
+              <tr><td>sound</td><td class="num">7</td><td>styles, value clamping, headroom, the audio chain</td></tr>
+              <tr><td>static</td><td class="num">5</td><td>file references, imports, the service-worker list against the server's allowlist, the model cache name</td></tr>
+              <tr><td>turntable</td><td class="num">15</td><td>platter and tonearm motion, agreement with the CSS numbers</td></tr>
+              <tr><td>wall-painter</td><td class="num">4</td><td>144 Hz pacing, stopping, pick and hover versions</td></tr>
+              <tr><td>ytmusic</td><td class="num">4</td><td>YouTube Music addresses and their encoding</td></tr>
+              <tr><td><strong>Total</strong></td><td class="num"><strong>125</strong></td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The security tests start the real server on a free port while they run.</p>
+      </section>
+
+      <section class="track" id="limits">
+        <h2><span class="eyebrow">Track 14</span>Limits and open points</h2>
+        <h3>Limits of the design</h3>
+        <ul>
+          <li><strong>Spotify.</strong> Playing inside the page needs Premium. Development Mode needs the app owner to have Premium and allows at most five other people. Search returns at most 10 results. Spotify's developer terms do not allow publishing an app that alters their audio.</li>
+          <li><strong>Delay.</strong> The AI path runs about 1.3 to 1.5 seconds behind the player on the README's RTX 4050 laptop, and more on a busier GPU. It needs a 59 MB download on first use. A GPU that takes over 2.5 seconds a run falls back to the Fast remover.</li>
+          <li><strong>Fast is a compromise.</strong> It removes what is centred, so a voice mixed off-centre survives, and a song that is mono is left alone.</li>
+          <li><strong>Browsers.</strong> Only Chromium browsers on a computer can share a tab's sound, so only they get the live remover. Safari support is written from the code and Spotify's documentation, which names Safari on macOS as supported without a version. It has not been tried on a real Safari.</li>
+          <li><strong>YouTube Music.</strong> There is no connector to its player: only a search link and Any tab mode.</li>
+        </ul>
+
+        <h3>Small mismatches found while writing this guide</h3>
+        <ul>
+          <li>The README says the resampler converts between 48 kHz and 44.1 kHz. The code converts between whatever rate the sound card runs at and 44.1 kHz.</li>
+          <li>The README says the model runs “about every 0.6 s”. That holds for runs of about 0.2 to 0.46 seconds (see the table in Track 06).</li>
+          <li>A comment in <code>album-wall.css</code> says the landing page puts the wall in two frames. It uses one fixed layer.</li>
+          <li>Comments in <code>turntable-motion.js</code> and <code>matcher.js</code> mention a drawing in <code>index.html</code>, a pop-up and an extension. The arm's drawing is in <code>app.html</code>, and neither of the others exists any more. <code>parseTabTitle</code> in <code>matcher.js</code> is only used by tests.</li>
+          <li>A note in <code>dsp-core.js</code> asks whether the Fast remover's <em>reach</em> should widen near the top of the slider. It is fixed at 0.5.</li>
+        </ul>
+
+        <h3>Statements that rest on a comment, not on a run</h3>
+        <ul>
+          <li>That Spotify rotates refresh tokens and may skip the approval screen for a returning user: both come from comments in the login code.</li>
+          <li>That a friend list is limited to five people: from the landing page's text.</li>
+          <li>The README's quality figures (−33 dB, 21.5 dB, −5 dB, 10.5 dB, 8 dB) were read, not re-measured.</li>
+        </ul>
+      </section>
+
+      <section class="track" id="reference">
+        <h2><span class="eyebrow">Track 15</span>Reference</h2>
+
+        <h3>What the browser stores</h3>
+        <div class="tablewrap">
+          <table>
+            <caption>Local storage, session storage and caches</caption>
+            <thead><tr><th>Key</th><th>Where</th><th>What it holds</th></tr></thead>
+            <tbody>
+              <tr><td><code>bgm.auth</code></td><td>local storage</td><td>the login: access token, refresh token, expiry and Client ID</td></tr>
+              <tr><td><code>bgm.signedOut</code></td><td>local storage</td><td>set when you log out on purpose, so automatic sign-in stays off</td></tr>
+              <tr><td><code>bgm.settings</code></td><td>local storage</td><td>the settings in Track 02, including the Sound values</td></tr>
+              <tr><td><code>bgm.covers</code></td><td>local storage</td><td>the album-wall covers (secure addresses only)</td></tr>
+              <tr><td><code>bgm.login</code></td><td>session storage</td><td>the verifier, state and Client ID while a login is in progress</td></tr>
+              <tr><td><code>bgm.autoSignIn</code></td><td>session storage</td><td>this tab has already tried automatic sign-in</td></tr>
+              <tr><td><code>bgm-mode-v23</code></td><td>cache storage</td><td>a saved copy of the app</td></tr>
+              <tr><td><code>bgm-mode-model</code></td><td>cache storage</td><td>the AI model</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Where things are</h3>
+        <div class="tablewrap">
+          <table>
+            <caption>Files in bgm-mode/ (the ones under src/ are named without the folder)</caption>
+            <thead><tr><th>Area</th><th>Files</th></tr></thead>
+            <tbody>
+              <tr><td>Landing page</td><td><code>index.html</code>, <code>landing.js</code>, <code>landing.css</code>, <code>intro.js</code> (the record drop), <code>sound-demo.js</code></td></tr>
+              <tr><td>Player</td><td><code>app.html</code>, <code>app.js</code> (the controller), <code>app.css</code>, <code>guide.js</code> (setup guide), <code>settings.js</code></td></tr>
+              <tr><td>Spotify</td><td><code>auth.js</code>, <code>spotify-api.js</code>, <code>player.js</code> (Web Playback SDK)</td></tr>
+              <tr><td>Song logic</td><td><code>matcher.js</code>, <code>bgm.js</code>, <code>now-playing.js</code>, <code>covers.js</code>, <code>ytmusic.js</code></td></tr>
+              <tr><td>Live remover</td><td><code>live-remover.js</code>, <code>engine.html</code>, <code>engine.js</code></td></tr>
+              <tr><td>AI remover</td><td><code>ai-model.js</code>, <code>ai-pipeline.js</code>, <code>separator.js</code>, <code>fft.js</code>, <code>resampler.js</code>, <code>playback-fifo.js</code>, <code>ai-io.worklet.js</code></td></tr>
+              <tr><td>Fast remover</td><td><code>dsp-core.js</code>, <code>vocal-remover.worklet.js</code></td></tr>
+              <tr><td>Sound</td><td><code>sound.js</code>, <code>sound-panel.js</code>, <code>range.js</code> (slider fill)</td></tr>
+              <tr><td>Visuals</td><td><code>album-wall.js</code>, <code>album-wall-layout.js</code>, <code>album-wall-paint.js</code>, <code>album-wall-worker.js</code>, <code>frame-pacer.js</code>, <code>sleeves.js</code>, <code>turntable.js</code>, <code>turntable-motion.js</code>, <code>kinetic-type.js</code></td></tr>
+              <tr><td>Errors and offline</td><td><code>404.html</code>, <code>error.css</code>, <code>crash.js</code>, <code>sw.js</code>, <code>manifest.webmanifest</code></td></tr>
+              <tr><td>Server and headers</td><td><code>serve.mjs</code>, <code>security-headers.mjs</code>, <code>netlify.toml</code></td></tr>
+              <tr><td>Other</td><td><code>tests/</code>, <code>tools/make-icons.mjs</code>, <code>assets/</code> (design kit), <code>fonts/</code>, <code>icons/</code>, <code>models/</code> (the AI model, not in git), <code>README.md</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Words used in this guide</h3>
+        <dl class="glance">
+          <dt>AudioWorklet</dt><dd>A small program the browser runs on its real-time audio thread, where code must never be slow.</dd>
+          <dt>Context</dt><dd>The playlist or album a Spotify song is playing from.</dd>
+          <dt>COOP, CORP</dt><dd>Headers that keep a page apart from other sites' windows, and keep other sites from loading its files.</dd>
+          <dt>Cross-fade</dt><dd>Blending the end of one stretch of sound into the start of the next so the join cannot be heard.</dd>
+          <dt>CSP</dt><dd>Content Security Policy: a header listing where a page may load scripts, pictures and data from. The browser refuses everything else.</dd>
+          <dt>DNS rebinding</dt><dd>A trick that points a hostile site's name at your own computer so its page can talk to a local server. The host check refuses it.</dd>
+          <dt>FFT</dt><dd>Fast Fourier transform: splits a short slice of sound into its frequencies.</dd>
+          <dt>Hann window</dt><dd>A smooth fade in and out applied to each slice so slices join without edges.</dd>
+          <dt>Hop</dt><dd>How far the cut moves between two frames: 1024 samples here.</dd>
+          <dt>ONNX</dt><dd>A file format for neural networks. ONNX Runtime is the program that runs one.</dd>
+          <dt>OffscreenCanvas</dt><dd>A canvas a worker can draw on, away from the page's main thread.</dd>
+          <dt>PKCE</dt><dd>Proof Key for Code Exchange: a login scheme that needs no client secret.</dd>
+          <dt>PWA</dt><dd>Progressive web app: a site that can be installed and can open offline.</dd>
+          <dt>Spectrogram</dt><dd>A picture of how much of each frequency is present over time.</dd>
+          <dt>STFT</dt><dd>Short-time Fourier transform: the FFT run on overlapping frames to make a spectrogram. The inverse STFT turns one back into sound.</dd>
+          <dt>Strength</dt><dd>How much of the removal is applied, from 0 to 1.</dd>
+          <dt>Underrun</dt><dd>The playback buffer running empty.</dd>
+          <dt>WebGPU</dt><dd>The browser's way of using the graphics card for general computing.</dd>
+        </dl>
+      </section>
+
+      <footer class="end">
+        <p>Everything in this guide was read from the BGM Mode code at commit 2159509 and checked against it. Tables of step sizes, frame rates, filter curves, the wall's plane and the tonearm's angles were computed with the project's own functions or formulas, so no figure was typed by hand. Where a statement rests only on a comment or on page text, the text says so.</p>
+      </footer>
+    </main>
+  </div>
+</div>
+</body>
+</html>

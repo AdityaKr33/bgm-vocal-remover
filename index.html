@@ -1,0 +1,279 @@
+<!doctype html>
+<!-- The live vocal remover: it shares a browser tab's sound (src/live-remover.js), takes the vocals out in the
+     engine window (engine.html) and shapes what is left (src/sound.js). No account, no upload, no server. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Live Vocal Remover for Any Browser Tab | BGM Mode</title>
+  <meta name="description" content="Remove the vocals from any music tab while it plays: YouTube, YouTube Music, SoundCloud or any site. Runs on your own graphics card, uploads nothing, free and open source.">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <!-- SET YOUR DOMAIN: run `node tools/set-domain.mjs https://your-site.example` once after deploying. -->
+  <link rel="canonical" href="https://bgm-mode.example/">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://bgm-mode.example/">
+  <meta property="og:title" content="Live Vocal Remover for Any Browser Tab">
+  <meta property="og:description" content="Remove the vocals from any music tab while it plays. Runs on your own graphics card and uploads nothing.">
+  <meta property="og:image" content="share.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="icons/icon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="theme-color" content="#f4ebdb">
+  <link rel="stylesheet" href="src/theme.css">
+  <link rel="stylesheet" href="src/studio.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "name": "BGM Mode Vocal Remover",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Chrome, Edge or Brave on a computer",
+        "description": "Removes the vocals from any browser tab's music while it plays, using an AI model on your own graphics card. Nothing is uploaded.",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "featureList": [
+          "Removes vocals from any browser tab in real time",
+          "Runs an AI model on your own GPU through WebGPU",
+          "A faster method that needs no graphics card",
+          "Bass, treble and stereo width controls",
+          "Nothing is uploaded or recorded"
+        ],
+        "author": { "@type": "Person", "name": "Aditya Kumar" }
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Is my music uploaded anywhere?",
+            "acceptedAnswer": { "@type": "Answer", "text": "No. The sound never leaves your computer. The AI model is downloaded to your browser once and runs on your own graphics card, so there is no server to send audio to." }
+          },
+          {
+            "@type": "Question",
+            "name": "Which browsers does it work in?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Chrome, Edge and Brave on a computer. Safari and Firefox cannot share a tab's sound, which this needs. Phones and tablets cannot either." }
+          },
+          {
+            "@type": "Question",
+            "name": "Do I need an account?",
+            "acceptedAnswer": { "@type": "Answer", "text": "No. There is no sign-up, no account and no payment. Open the page, pick a tab and press Start." }
+          },
+          {
+            "@type": "Question",
+            "name": "Why is there a short delay?",
+            "acceptedAnswer": { "@type": "Answer", "text": "The AI model works on about six seconds of sound at a time, so the cleaned audio runs roughly 1.3 to 1.5 seconds behind the original on a recent laptop GPU. The Fast remover has almost no delay." }
+          },
+          {
+            "@type": "Question",
+            "name": "How well does it remove the vocals?",
+            "acceptedAnswer": { "@type": "Answer", "text": "With the AI remover the voice drops to about 2 percent of its level while the music is rebuilt faithfully. The Fast remover is lighter: it reduces a centred voice but leaves more of it behind." }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body class="studio">
+  <a class="skip" href="#tool">Skip to the remover</a>
+
+  <header class="st-top">
+    <a class="st-brand" href="./">
+      <span class="st-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+      BGM Mode
+    </a>
+    <nav class="st-nav" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#works">Works with</a>
+      <a href="#faq">Questions</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="st-hero">
+      <div class="st-hero-text">
+        <h1>Take the vocals out of any tab, while it plays</h1>
+        <p class="st-lede">
+          Point it at a music tab and the singing goes, live. An AI model runs on your own graphics
+          card, so nothing is uploaded, nothing is recorded, and there is no account to make.
+        </p>
+        <ul class="st-points">
+          <li><b>Any site.</b> YouTube, YouTube Music, SoundCloud, Bandcamp, a radio stream.</li>
+          <li><b>Nothing leaves your computer.</b> The model runs in your browser, on your GPU.</li>
+          <li><b>Free and open source.</b> No sign-up, no trial, no upload limit.</li>
+        </ul>
+      </div>
+
+      <div class="st-tool" id="tool">
+        <div class="desk-col live" id="liveBox">
+          <div class="row">
+            <h2>Live vocal remover<span class="eq" aria-hidden="true"><i></i><i></i><i></i></span></h2>
+            <button class="primary small" id="liveBtn" type="button">Start</button>
+          </div>
+          <ol class="st-steps">
+            <li>Open the music you want in another tab.</li>
+            <li>Press Start and pick that tab. Tick <b>Also share tab audio</b>.</li>
+            <li>A small window opens and plays it back without the vocals.</li>
+          </ol>
+          <div class="segmented" role="radiogroup" aria-label="Vocal remover quality">
+            <label><input type="radio" name="quality" id="qualityAi" value="ai"><span>AI</span></label>
+            <label><input type="radio" name="quality" id="qualityFast" value="fast"><span>Fast</span></label>
+          </div>
+          <div class="row model" id="modelRow" hidden>
+            <span class="hint" id="modelText"></span>
+            <button class="ghost small" id="modelBtn" type="button">Download</button>
+          </div>
+          <p class="hint" id="liveText"></p>
+          <label class="strength" for="strength">Strength<input id="strength" type="range" min="0" max="100" step="1"><output id="strengthOut" for="strength"></output></label>
+          <button class="ghost small sound-open" id="soundBtn" type="button">Sound: <b id="soundName">Flat</b></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Ad slot. Empty and hidden until you are approved: see the launch checklist in README.md. -->
+    <aside class="ad-slot" data-ad="top" hidden aria-hidden="true"></aside>
+
+    <section class="st-band" id="how">
+      <h2>How it works</h2>
+      <div class="st-grid">
+        <article>
+          <h3>It listens to a tab, not to a file</h3>
+          <p>
+            Your browser can hand one tab's sound to another page. That is what the Start button asks
+            for. There is no upload and no waiting for a file to process: the music is cleaned as it
+            plays, a second or so behind.
+          </p>
+        </article>
+        <article>
+          <h3>The AI remover</h3>
+          <p>
+            A trained model (MDX-Net Inst HQ 5) splits the music from the voice. It runs on your
+            graphics card through WebGPU. The model is 56 MB and downloads once, then stays in your
+            browser. The voice drops to about 2 % of its level.
+          </p>
+        </article>
+        <article>
+          <h3>The Fast remover</h3>
+          <p>
+            No graphics card needed. Singers are mixed dead centre, so this cancels whatever sits in
+            the middle of the stereo picture, while protecting the bass and keeping drum hits. It is
+            gentler, with almost no delay.
+          </p>
+        </article>
+        <article>
+          <h3>Then you shape it</h3>
+          <p>
+            Bass, Warmth, Instruments, Clarity, Treble and stereo width, with twelve ready-made styles
+            from Deep focus to Late night. A limiter keeps the level safe whatever you choose.
+          </p>
+        </article>
+      </div>
+      <p class="st-more">
+        Want the whole story? <a href="guide.html">Read how it is built</a>: the audio pipeline, the
+        streaming maths and the browser APIs behind it, with diagrams.
+      </p>
+    </section>
+
+    <section class="st-band alt" id="works">
+      <h2>What it works with</h2>
+      <p class="st-wide">
+        Anything that plays sound in a browser tab. There is no list to be on and no integration to
+        set up, because it listens to the tab rather than to a service.
+      </p>
+      <ul class="st-tags">
+        <li>YouTube</li><li>YouTube Music</li><li>SoundCloud</li><li>Bandcamp</li>
+        <li>Internet radio</li><li>Apple Music on the web</li><li>Deezer</li><li>Your own files in a tab</li>
+      </ul>
+      <p class="st-wide st-small">
+        It needs Chrome, Edge or Brave on a computer. Safari and Firefox cannot share a tab's sound yet,
+        and nor can phones or tablets.
+      </p>
+    </section>
+
+    <section class="st-band" id="privacy-short">
+      <h2>Nothing is uploaded</h2>
+      <p class="st-wide">
+        Most vocal removers make you upload a file to their servers. This one does not have servers to
+        upload to. The AI model is fetched once, like an image on a web page, and then every bit of the
+        work happens inside your own browser on your own machine. Your music is never sent anywhere,
+        never stored and never recorded. <a href="privacy.html">The full privacy policy</a> says so in detail.
+      </p>
+    </section>
+
+    <section class="st-band alt" id="faq">
+      <h2>Questions</h2>
+      <dl class="st-faq">
+        <dt>Is my music uploaded anywhere?</dt>
+        <dd>No. The sound never leaves your computer. The model runs on your own graphics card, so there is no server to send audio to.</dd>
+
+        <dt>Which browsers does it work in?</dt>
+        <dd>Chrome, Edge and Brave on a computer. Safari and Firefox cannot share a tab's sound, which this needs, and nor can phones or tablets.</dd>
+
+        <dt>Do I need an account?</dt>
+        <dd>No. There is no sign-up, no account and no payment. Open the page, pick a tab, press Start.</dd>
+
+        <dt>Why is there a short delay?</dt>
+        <dd>The AI model works on about six seconds of sound at a time, so the cleaned sound runs roughly 1.3 to 1.5 seconds behind on a recent laptop GPU. The Fast remover has almost no delay.</dd>
+
+        <dt>How well does it remove the vocals?</dt>
+        <dd>With the AI remover the voice drops to about 2 % of its level while the music stays. The Fast remover is lighter: it reduces a centred voice but leaves more of it behind.</dd>
+
+        <dt>Why does a second window open?</dt>
+        <dd>If this page played the cleaned sound itself, the share would capture that sound again and you would hear a loop. The small window has its own audio output, outside the share.</dd>
+
+        <dt>Can I use it for karaoke or practice?</dt>
+        <dd>Yes, that is what it is for: backing tracks to sing or play over, and music to study to without the lyrics pulling your attention.</dd>
+      </dl>
+    </section>
+
+    <!-- Ad slot. Empty and hidden until you are approved: see the launch checklist in README.md. -->
+    <aside class="ad-slot" data-ad="foot" hidden aria-hidden="true"></aside>
+  </main>
+
+  <footer class="st-foot">
+    <div class="st-foot-grid">
+      <div>
+        <h2>Made by Aditya Kumar</h2>
+        <p>Aerospace engineering student at the Indian Institute of Science (IISc), Bengaluru. I built BGM Mode to study with music and none of the lyrics.</p>
+        <p class="st-social">
+          <a href="https://www.instagram.com/aadi._.itya_/" target="_blank" rel="noreferrer">Instagram</a>
+          <a href="https://www.linkedin.com/in/aditya-kumar-40585142a/" target="_blank" rel="noreferrer">LinkedIn</a>
+        </p>
+      </div>
+      <div>
+        <h2>Keep it free</h2>
+        <p>It costs nothing to use and shows no ads on the tool itself. If it saved you a subscription, you can chip in.</p>
+        <p class="st-social">
+          <!-- SET THESE: replace with your own sponsor pages, or delete the links. -->
+          <a class="st-support" href="https://github.com/sponsors/AdityaKr33" target="_blank" rel="noreferrer">GitHub Sponsors</a>
+          <a class="st-support" href="https://ko-fi.com/" target="_blank" rel="noreferrer">Ko-fi</a>
+        </p>
+      </div>
+      <div>
+        <h2>More</h2>
+        <p class="st-social st-col">
+          <a href="guide.html">How it is built</a>
+          <a href="privacy.html">Privacy</a>
+          <a href="https://github.com/AdityaKr33/bgm-mode" target="_blank" rel="noreferrer">Source code</a>
+        </p>
+      </div>
+    </div>
+    <p class="st-fine">Not affiliated with, or endorsed by, any music service. Vocal removal is for personal use: respect the rights of the music you process.</p>
+  </footer>
+
+  <dialog class="sound" id="soundPanel" aria-labelledby="soundTitle">
+    <div class="sound-head">
+      <div><h2 id="soundTitle">Sound</h2><p class="hint" id="soundNote"></p></div>
+      <button class="ghost small" type="button" data-close>Done</button>
+    </div>
+    <h3 class="sound-sub">Try a style</h3>
+    <div class="sound-styles" role="group" aria-label="Sound styles"></div>
+    <div class="sound-head"><h3 class="sound-sub">Fine-tune</h3><button class="ghost small" type="button" data-reset>Back to flat</button></div>
+    <div class="sound-sliders"></div>
+  </dialog>
+
+  <script src="src/crash.js"></script>
+  <script type="module" src="src/studio.js"></script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!doctype html>
+<!-- The privacy policy for the public page (vocal-remover.html). Ad networks ask for one, but the reason it is
+     short is that the tool genuinely has no server: the audio never leaves the visitor's computer. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Privacy | BGM Mode</title>
+  <meta name="description" content="What BGM Mode's vocal remover stores and what it does not. Your music never leaves your computer: there is no server to send it to.">
+  <meta name="robots" content="index, follow">
+  <!-- SET YOUR DOMAIN: run `node tools/set-domain.mjs https://your-site.example` once after deploying. -->
+  <link rel="canonical" href="https://bgm-mode.example/privacy">
+  <link rel="icon" href="icons/icon-32.png" sizes="32x32">
+  <meta name="theme-color" content="#f4ebdb">
+  <link rel="stylesheet" href="src/theme.css">
+  <link rel="stylesheet" href="src/studio.css">
+</head>
+<body class="studio">
+  <header class="st-top">
+    <a class="st-brand" href="./">
+      <span class="st-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+      BGM Mode
+    </a>
+    <nav class="st-nav" aria-label="Sections">
+      <a href="./">The remover</a>
+      <a href="guide.html">How it is built</a>
+    </nav>
+  </header>
+
+  <main class="st-band st-prose">
+    <h1>Privacy</h1>
+    <p class="st-wide st-updated">Last updated 18 November 2026.</p>
+
+    <h2>The short version</h2>
+    <p class="st-wide">
+      Your music never reaches us, because there is nowhere for it to go. The vocal remover runs entirely
+      inside your own browser, on your own computer. We have no account system, no database and no server
+      that receives audio.
+    </p>
+
+    <h2>Your audio</h2>
+    <p class="st-wide">
+      When you press Start, your browser asks which tab to share and hands that tab's sound to the page.
+      That sound is processed on your machine and played back through a small window. It is never uploaded,
+      never recorded and never written to a file. When you press Stop, or close the window, it is gone.
+    </p>
+
+    <h2>What is stored on your device</h2>
+    <p class="st-wide">These stay in your browser. They are never sent anywhere, and clearing your site data removes them.</p>
+    <ul class="st-wide">
+      <li><b>Your settings</b> (local storage, <code>bgm.settings</code>): the remover quality, the strength slider and your Sound choices, so the page remembers them next time.</li>
+      <li><b>The AI model</b> (cache storage, about 56 MB): downloaded once so you do not fetch it again.</li>
+      <li><b>An offline copy of the page</b> (cache storage), so it still opens without a connection.</li>
+    </ul>
+
+    <h2>What the page loads from elsewhere</h2>
+    <ul class="st-wide">
+      <li><b>The AI model file</b>, from Hugging Face, the first time you choose AI mode. That request tells them your IP address, as any download does.</li>
+      <li><b>The code that runs the model</b> (ONNX Runtime), from the jsDelivr network.</li>
+    </ul>
+    <p class="st-wide">Nothing about what you listen to is included in either request.</p>
+
+    <h2>Analytics</h2>
+    <p class="st-wide">
+      There are none. No tracking script, no visitor counter, no fingerprinting.
+    </p>
+
+    <h2>Advertising</h2>
+    <p class="st-wide">
+      This site may show ads supplied by Google AdSense to cover its costs. If and when it does, Google and its
+      partners may use cookies to serve ads based on your visits to this and other sites. You can opt out of
+      personalised advertising in
+      <a href="https://www.google.com/settings/ads" target="_blank" rel="noreferrer">Google's Ads Settings</a>,
+      and read how Google uses data at
+      <a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noreferrer">its partner-sites page</a>.
+      Ads are never shown inside the remover itself, and they receive no audio: they cannot, because the audio
+      never leaves your browser.
+    </p>
+
+    <h2>Children</h2>
+    <p class="st-wide">
+      This site is not aimed at children under 13 and collects no personal information from anyone.
+    </p>
+
+    <h2>Changes</h2>
+    <p class="st-wide">
+      If this policy changes, the date at the top changes with it. The full history is public in the
+      <a href="https://github.com/AdityaKr33/bgm-mode" target="_blank" rel="noreferrer">source repository</a>.
+    </p>
+
+    <h2>Contact</h2>
+    <p class="st-wide">
+      BGM Mode is made by Aditya Kumar. Reach me on
+      <a href="https://www.linkedin.com/in/aditya-kumar-40585142a/" target="_blank" rel="noreferrer">LinkedIn</a>
+      or open an issue on the
+      <a href="https://github.com/AdityaKr33/bgm-mode" target="_blank" rel="noreferrer">repository</a>.
+    </p>
+  </main>
+
+  <footer class="st-foot">
+    <div class="st-foot-grid">
+      <div>
+        <h2>BGM Mode</h2>
+        <p>A live vocal remover that runs in your browser and uploads nothing.</p>
+      </div>
+      <div>
+        <h2>More</h2>
+        <p class="st-social st-col">
+          <a href="./">The remover</a>
+          <a href="guide.html">How it is built</a>
+          <a href="https://github.com/AdityaKr33/bgm-mode" target="_blank" rel="noreferrer">Source code</a>
+        </p>
+      </div>
+    </div>
+    <p class="st-fine">Not affiliated with, or endorsed by, any music service.</p>
+  </footer>
+</body>
+</html>

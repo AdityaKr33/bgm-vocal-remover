@@ -1,0 +1,79 @@
+# Netlify: this site is plain files, with no build step. Connect the repository and every push to main
+# redeploys. The AI model isn't hosted here; the first time a visitor chooses AI, their own browser fetches
+# it from Hugging Face and checks its SHA-256 (src/ai-model.js).
+[build]
+  publish = "."
+
+# The same headers the local server sends (security-headers.mjs; tests/security.test.mjs keeps them identical),
+# plus HTTPS-only, which the local http://127.0.0.1 copy can't use.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/ https://huggingface.co https://*.huggingface.co https://*.hf.co; media-src 'self' blob: data:; frame-src 'none'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Resource-Policy = "same-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), display-capture=(self)"
+    Strict-Transport-Security = "max-age=31536000"
+
+# Pretty addresses: /guide and /privacy as well as /guide.html and /privacy.html.
+[[redirects]]
+  from = "/guide"
+  to = "/guide.html"
+  status = 200
+
+[[redirects]]
+  from = "/privacy"
+  to = "/privacy.html"
+  status = 200
+
+# The project's own files are not part of the website.
+[[redirects]]
+  from = "/tests/*"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/tools/*"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/serve.mjs"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/security-headers.mjs"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/package.json"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/README.md"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/netlify.toml"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/.gitignore"
+  to = "/404.html"
+  status = 404
+  force = true

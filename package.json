@@ -1,0 +1,13 @@
+{
+  "name": "bgm-vocal-remover",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Removes the vocals from any browser tab while it plays, with an AI model on your own GPU. Nothing is uploaded.",
+  "type": "module",
+  "scripts": {
+    "start": "node serve.mjs",
+    "test": "node --test",
+    "icons": "node tools/make-icons.mjs"
+  },
+  "license": "MIT"
+}

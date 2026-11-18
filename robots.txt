@@ -1,0 +1,11 @@
+# This whole site is public: the vocal remover, how it is built, and the privacy policy.
+
+User-agent: *
+Allow: /
+Disallow: /engine.html
+Disallow: /tests/
+Disallow: /tools/
+Disallow: /models/
+
+# SET YOUR DOMAIN: run `node tools/set-domain.mjs https://your-site.example` once after deploying.
+Sitemap: https://bgm-mode.example/sitemap.xml

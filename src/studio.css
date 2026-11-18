@@ -1,0 +1,190 @@
+/* The public vocal-remover page (vocal-remover.html). It borrows the record-shop theme and the live
+   controls from src/app.css and only lays out the page around them: a cream page, the tool on an
+   espresso slab where those controls expect to sit, then the sections a first-time visitor reads. */
+
+body.studio {
+  background: var(--cream);
+  overflow-x: hidden;
+}
+.studio .skip {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  z-index: 20;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--gold);
+  color: var(--espresso);
+  font-weight: 600;
+  text-decoration: none;
+}
+.studio .skip:focus { left: 16px; }
+.studio :focus-visible { outline: 2px solid var(--gold-press); outline-offset: 3px; border-radius: 4px; }
+
+.studio h1, .studio .st-band h2, .studio .st-foot h2 { font-family: var(--font-headline); font-variation-settings: var(--headline-axes); }
+
+/* the bar at the top */
+.st-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 18px max(20px, env(safe-area-inset-left, 0px)) 18px max(20px, env(safe-area-inset-right, 0px));
+}
+.st-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font: 600 19px/1 var(--font-display);
+  letter-spacing: 0.01em;
+  text-decoration: none;
+}
+.st-bars { display: inline-flex; align-items: flex-end; gap: 3px; height: 17px; }
+.st-bars i { width: 4px; border-radius: 2px; background: var(--gold); }
+.st-bars i:nth-child(1) { height: 60%; }
+.st-bars i:nth-child(2) { height: 100%; }
+.st-bars i:nth-child(3) { height: 75%; }
+.st-nav { display: flex; gap: 22px; }
+.st-nav a { color: var(--ink-muted); font-size: 15px; text-decoration: none; }
+.st-nav a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+
+/* the first screen: what it is, and the tool itself */
+.st-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
+  align-items: start;
+  gap: 48px;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px max(20px, env(safe-area-inset-left, 0px)) 64px max(20px, env(safe-area-inset-right, 0px));
+}
+.studio h1 { max-width: 13ch; font-size: clamp(38px, 6vw, 62px); font-weight: 600; line-height: 1.02; }
+.st-lede { max-width: 48ch; margin: 18px 0 0; color: var(--ink-muted); font-size: 18px; line-height: 1.55; text-wrap: pretty; }
+.st-points { max-width: 50ch; margin: 22px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.st-points li { position: relative; padding-left: 26px; color: var(--ink-muted); line-height: 1.5; }
+.st-points li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.45em;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: radial-gradient(circle closest-side, var(--cream) 0 28%, var(--gold) 31%);
+}
+.st-points b { color: var(--ink); font-weight: 600; }
+
+/* the espresso slab the live controls are drawn for */
+.st-tool {
+  position: sticky;
+  top: 20px;
+  padding: 22px;
+  border: 1px solid var(--espresso-line);
+  border-radius: 18px;
+  background: var(--espresso);
+  /* The controls inherit their text colour (a .ghost button draws no colour of its own), so the panel has to
+     set a light one here. Without it they render in the page's near-black ink and vanish into the slab. */
+  color: var(--on-dark);
+  box-shadow: 0 22px 44px -26px rgb(34 25 17 / 0.6);
+}
+.st-tool .hint { color: var(--on-dark-muted); }
+/* The theme gives .ghost buttons dark ink for the cream page and repaints them for its own dark panels
+   (.sheet, .guide). This panel is a third one, so it needs the same repaint: without it "Download" and
+   "Sound: Flat" are drawn in near-black on espresso and read as empty pills. */
+.st-tool .ghost { --wipe: var(--espresso-raise); border-color: var(--edge); color: var(--on-dark); }
+.st-tool .desk-col.live.is-off .segmented,
+.st-tool .desk-col.live.is-off .strength,
+.st-tool .desk-col.live.is-off .sound-open { display: none; } /* an unsupported browser gets the reason, not dead controls */
+.st-tool .desk-col.live.no-ai .segmented { opacity: 0.85; }
+.st-steps { margin: 2px 0 4px; padding-left: 20px; color: var(--on-dark-muted); font: 14px/1.5 var(--font-small); }
+.st-steps li { margin-bottom: 4px; }
+.st-steps b { color: var(--on-dark); font-weight: 600; }
+
+/* the bands below */
+.st-band { padding: 56px max(20px, env(safe-area-inset-left, 0px)) 56px max(20px, env(safe-area-inset-right, 0px)); }
+.st-band > * { max-width: 1120px; margin-inline: auto; }
+.st-band.alt { background: var(--cream-deep); }
+.st-band h2 { margin-bottom: 26px; font-size: clamp(26px, 3.4vw, 36px); font-weight: 600; }
+.st-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 26px 36px; }
+.st-grid h3 { margin: 0 0 8px; font: 600 18px/1.25 var(--font-display); }
+.st-grid p { margin: 0; color: var(--ink-muted); line-height: 1.55; text-wrap: pretty; }
+.st-wide { max-width: 68ch; color: var(--ink-muted); font-size: 17px; line-height: 1.6; text-wrap: pretty; }
+.st-small { font-size: 15px; }
+.st-more { margin-top: 28px; color: var(--ink-muted); }
+.st-band a { color: var(--ink); text-underline-offset: 3px; }
+.st-tags { display: flex; flex-wrap: wrap; gap: 9px; margin: 22px 0; padding: 0; list-style: none; }
+.st-tags li {
+  padding: 6px 15px;
+  border: 1px solid var(--cream-deep);
+  border-radius: 999px;
+  background: var(--cream);
+  color: var(--ink-muted);
+  font-size: 15px;
+}
+.st-band.alt .st-tags li { border-color: #ded0b6; }
+
+.st-faq { max-width: 68ch; margin: 0; }
+.st-faq dt { margin-top: 22px; font: 600 17px/1.35 var(--font-display); }
+.st-faq dt:first-child { margin-top: 0; }
+.st-faq dd { margin: 7px 0 0; color: var(--ink-muted); line-height: 1.55; text-wrap: pretty; }
+
+/* a plain reading page: the privacy policy */
+.st-prose h1 { max-width: none; margin-bottom: 6px; font-size: clamp(32px, 5vw, 46px); font-weight: 600; }
+.st-prose h2 { margin: 38px 0 10px; font-size: clamp(21px, 2.6vw, 26px); }
+.st-prose .st-updated { color: #8a7560; font-size: 15px; }
+.st-prose ul.st-wide { padding-left: 22px; }
+.st-prose li { margin-bottom: 8px; }
+.st-prose b { color: var(--ink); font-weight: 600; }
+.st-prose code { padding: 1px 6px; border-radius: 4px; background: var(--cream-deep); font-size: 0.9em; }
+
+/* space kept for ads, so turning them on moves nothing. Hidden until there is something to show. */
+.ad-slot { display: block; max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+.ad-slot:not([hidden]) { min-height: 100px; margin-block: 28px; }
+
+.st-foot {
+  padding: 54px max(20px, env(safe-area-inset-left, 0px)) 34px max(20px, env(safe-area-inset-right, 0px));
+  background: var(--espresso);
+  color: var(--on-dark-muted);
+}
+.st-foot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 34px 44px;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+.st-foot h2 { margin-bottom: 10px; color: var(--on-dark); font-size: 20px; font-weight: 600; }
+.st-foot p { margin: 0 0 10px; line-height: 1.55; text-wrap: pretty; }
+.st-social { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.st-social.st-col { flex-direction: column; gap: 8px; }
+.st-foot a { color: var(--gold); text-underline-offset: 3px; }
+.st-foot a:hover { color: var(--gold-hover); }
+.st-support {
+  padding: 7px 15px;
+  border: 1px solid var(--espresso-line);
+  border-radius: 999px;
+  background: var(--espresso-raise);
+  text-decoration: none;
+}
+.st-support:hover { border-color: var(--gold); }
+.st-fine {
+  max-width: 1120px;
+  margin: 34px auto 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--espresso-line);
+  color: #a08f78;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .st-hero { grid-template-columns: minmax(0, 1fr); gap: 34px; padding-bottom: 44px; }
+  .st-tool { position: static; }
+  .st-nav { display: none; } /* the page is short enough to scroll on a phone */
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio *, .studio *::before { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- Shown for any address that isn't part of BGM Mode: by the local server (serve.mjs) and online (Netlify serves
+     404.html by itself). The service worker shows it too, switched to data-reason="offline", when the server can't
+     be reached. No scripts, and its links start at the site root, so it works at any address and on its own. -->
+<html lang="en" data-reason="missing">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#f4ebdb">
+  <title>Page not found · BGM Mode</title>
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/src/error.css">
+</head>
+<body>
+  <main class="bgm-err">
+    <div class="bgm-err__inner">
+      <div class="bgm-err__deck" aria-hidden="true"><span class="bgm-err__record"></span><span class="bgm-err__arm"></span></div>
+
+      <p class="bgm-err__code when-missing">Error 404</p>
+      <h1 class="bgm-err__title when-missing">This page isn’t on the record</h1>
+      <p class="bgm-err__text when-missing">The address may be mistyped, or the page has moved. Everything else is where you left it.</p>
+
+      <p class="bgm-err__code when-offline">Offline</p>
+      <h1 class="bgm-err__title when-offline">Can’t reach BGM Mode</h1>
+      <p class="bgm-err__text when-offline">The BGM Mode server isn’t answering. If it runs on this computer, start it again with <code>npm start</code>, then try again.</p>
+
+      <div class="bgm-err__actions when-missing">
+        <a class="bgm-err__btn bgm-err__btn--gold" href="/">Back to BGM Mode</a>
+        <a class="bgm-err__btn" href="/guide.html">Open the player</a>
+      </div>
+      <div class="bgm-err__actions when-offline">
+        <a class="bgm-err__btn bgm-err__btn--gold" href="">Try again</a>
+        <a class="bgm-err__btn" href="/">Back to BGM Mode</a>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

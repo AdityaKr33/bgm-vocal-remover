@@ -1,0 +1,601 @@
+/* The record-shop theme: a cream paper page, espresso-brown front panels, black vinyl and gold for every
+   action. Shared with the fuller BGM Mode player, which is why a few rules here have no match on this site.
+
+   Originally: BGM Mode, record-shop theme: a cream paper page, espresso-brown front panels, black vinyl and gold
+   for every action. Motion follows the record: discs roll out of sleeves and buttons, knobs roll along
+   their tracks, and the logo's bars dance while music plays. All of it stops for reduced motion. */
+
+/* Fraunces (SIL Open Font License, fonts/OFL.txt): a 1970s soft serif, like the titles on old record
+   sleeves, for the big headlines. Variable: weight, SOFT (rounded terminals), WONK (leaning letters),
+   optical size. Hosted here, so pages load nothing from elsewhere. */
+@font-face {
+  font-family: Fraunces;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/fraunces-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: Fraunces;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/fraunces-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  color-scheme: light;
+
+  --cream: #f4ebdb;
+  --cream-deep: #eadcc4;
+  --ink: #221911; /* text on cream */
+  --ink-muted: #6e5a47; /* 5.5:1 on cream */
+  --espresso: #2a1d14; /* front panels */
+  --espresso-raise: #3a2a1d; /* inputs and hovered rows on the panels */
+  --espresso-line: #4b3828;
+  --edge: #84705a; /* outlines on espresso: 3:1 */
+  --on-dark: #f4ebdb;
+  --on-dark-muted: #cdbba2; /* 8:1 on espresso */
+  --gold: #e5ae3d; /* every action; espresso text on it is 8:1 */
+  --gold-hover: #f0bd52;
+  --gold-press: #d29a2a;
+  --vinyl: #16110d;
+  --vinyl-groove: #2a211a;
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --font-headline: Fraunces, Georgia, "Times New Roman", serif; /* the big titles */
+  --headline-axes: "opsz" 144, "SOFT" 30, "WONK" 1;
+  --font-display: Bahnschrift, "DIN Alternate", "Roboto Condensed", "Arial Narrow", sans-serif; /* labels and numbers */
+  --font-text: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font-small: "Segoe UI Variable Small", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --topbar: 64px;
+  --gutter: 24px;
+
+  /* A small black record with a cream label: switch knobs, slider knobs and the discs in buttons and results. */
+  --mini-disc:
+    radial-gradient(circle closest-side, var(--vinyl) 0 11%, var(--cream) 13% 40%, transparent 42%),
+    conic-gradient(from 20deg, transparent 0 18deg, rgb(255 255 255 / 0.3) 30deg, transparent 42deg 198deg, rgb(255 255 255 / 0.16) 210deg, transparent 222deg),
+    radial-gradient(circle closest-side, var(--vinyl) 0 52%, #2c231c 55% 64%, var(--vinyl) 67% 78%, #2c231c 81% 90%, var(--vinyl) 93%);
+  /* The slider knob: the same record with soft-edged rings, a gold rim (on the knob) and a gold dot that shows it rolling. */
+  --knob:
+    radial-gradient(circle at 50% 30%, var(--gold) 0 1.4px, transparent 1.9px),
+    radial-gradient(circle closest-side, var(--vinyl) 0 13%, var(--cream) 15% 42%, var(--vinyl) 44% 54%, #2c231c 57% 66%, var(--vinyl) 69% 80%, #2c231c 83%);
+  --i-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .13 0 0 0 0 .1 0 0 0 0 .07 0 0 0 .08 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --magnifier: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23cdbba2' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
+  --i-note: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 18V5l11-2v13'/%3E%3Ccircle cx='6' cy='18' r='3'/%3E%3Ccircle cx='17' cy='16' r='3'/%3E%3C/svg%3E");
+  --i-mic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='3' width='6' height='11' rx='3'/%3E%3Cpath d='M5 11a7 7 0 0 0 14 0M12 18v3'/%3E%3C/svg%3E");
+  --i-mic-off: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='3' width='6' height='11' rx='3'/%3E%3Cpath d='M5 11a7 7 0 0 0 14 0M12 18v3M3 3l18 18'/%3E%3C/svg%3E");
+  --i-play: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23f4ebdb' d='M8 5v14l11-7z'/%3E%3C/svg%3E");
+  --i-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a8ddb0' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font: 16px/1.5 var(--font-text);
+  background: var(--grain), var(--cream);
+}
+::selection { background: var(--gold); color: var(--espresso); }
+
+h1, h2 { margin: 0; font-family: var(--font-display); line-height: 1.05; text-wrap: balance; }
+h2 { font-size: 21px; font-weight: 600; }
+p { margin: 0; }
+a { color: inherit; text-decoration-color: var(--gold); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+b { font-weight: 600; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.sheet :focus-visible { outline-color: var(--gold); }
+.hint { color: var(--ink-muted); font: 14px/1.45 var(--font-small); text-wrap: pretty; }
+.sheet .hint, .guide .hint { color: var(--on-dark-muted); }
+
+/* ---------- buttons ---------- */
+button { color: inherit; font: inherit; cursor: pointer; }
+button:disabled { opacity: 0.5; cursor: default; }
+.primary, .ghost {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 22px;
+  overflow: hidden;
+  border-radius: 999px;
+  font-weight: 600;
+  transition: background-color 0.2s, background-size 0.35s var(--ease), padding 0.35s var(--ease), transform 0.12s;
+}
+.primary { border: 0; background-color: var(--gold); color: var(--espresso); }
+.primary:hover:not(:disabled) { padding-left: 38px; padding-right: 6px; background-color: var(--gold-hover); }
+.primary:active:not(:disabled) { background-color: var(--gold-press); transform: scale(0.97); }
+.primary::before { /* the disc that rolls out of every gold button, like the record from its sleeve */
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 50%;
+  background: var(--mini-disc);
+  translate: -36px 0;
+  rotate: -300deg;
+  transition: translate 0.45s var(--ease), rotate 0.45s var(--ease);
+}
+.primary:hover:not(:disabled)::before { translate: 0 0; rotate: 0deg; }
+.ghost {
+  --wipe: var(--cream-deep);
+  border: 1px solid #8a7259;
+  background: linear-gradient(var(--wipe), var(--wipe)) no-repeat left / 0% 100%;
+  color: var(--ink);
+}
+.ghost:hover:not(:disabled) { background-size: 100% 100%; }
+.ghost:active:not(:disabled) { transform: scale(0.97); }
+.sheet .ghost, .guide .ghost { --wipe: var(--espresso-raise); border-color: var(--edge); color: var(--on-dark); }
+.small { min-height: 34px; padding: 0 14px; font-size: 14px; }
+.small::before { left: 8px; width: 14px; height: 14px; margin-top: -7px; translate: -28px 0; }
+.small.primary:hover:not(:disabled) { padding-left: 28px; padding-right: 0; }
+.big { width: 100%; min-height: 50px; font-size: 17px; }
+.big::before { left: 18px; width: 24px; height: 24px; margin-top: -12px; translate: -48px 0; }
+.big.primary:hover:not(:disabled) { padding-left: 22px; padding-right: 22px; }
+a.primary { text-decoration: none; }
+
+/* ---------- inputs (they all sit on espresso panels) ---------- */
+select, input[type="search"], .field input {
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--espresso-raise);
+  color: var(--on-dark);
+  font: inherit;
+  transition: border-color 0.2s;
+}
+select:focus-visible, input[type="search"]:focus-visible, .field input:focus-visible { border-color: var(--gold); }
+::placeholder { color: var(--on-dark-muted); opacity: 1; }
+select { width: 100%; min-height: 42px; padding: 0 10px; }
+
+/* The dropdown uses Chrome's customizable select, so its open list matches the page and slides open, while the
+   keyboard and screen readers still get a real <select>. Other browsers keep their own (dark) menu. */
+@supports (appearance: base-select) {
+  select, ::picker(select) { appearance: base-select; }
+  select { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px 0 14px; cursor: pointer; }
+  select:hover { border-color: var(--on-dark-muted); }
+  select:open { border-color: var(--gold); }
+  select::picker-icon {
+    content: "";
+    width: 14px;
+    height: 14px;
+    background: currentColor;
+    -webkit-mask: var(--i-chevron) center / contain no-repeat;
+    mask: var(--i-chevron) center / contain no-repeat;
+    transition: rotate 0.3s var(--ease);
+  }
+  select:open::picker-icon { rotate: 180deg; }
+  ::picker(select) {
+    position-try-order: normal; /* open below whenever it fits (Chrome's default picks whichever side has more room) */
+    margin-block: 4px;
+    padding: 5px;
+    border: 1px solid var(--edge);
+    border-radius: 14px;
+    background: var(--espresso-raise);
+    color: var(--on-dark);
+    opacity: 0;
+    translate: 0 -8px;
+    transition: opacity 0.2s ease-out, translate 0.3s var(--ease), overlay 0.3s allow-discrete, display 0.3s allow-discrete;
+  }
+  ::picker(select):popover-open { opacity: 1; translate: 0 0; }
+  @starting-style { ::picker(select):popover-open { opacity: 0; translate: 0 -8px; } }
+  option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 10px;
+    font: 15px/1.3 var(--font-text);
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+  }
+  option:hover, option:focus-visible { outline: none; background: rgb(244 235 219 / 0.08); }
+  option:checked { background: var(--gold); color: var(--espresso); font-weight: 600; }
+  option::checkmark { /* the chosen option gets a little spinning record instead of a tick */
+    content: "";
+    order: 1;
+    width: 18px;
+    height: 18px;
+    margin-left: auto;
+    border-radius: 50%;
+    background: var(--mini-disc);
+    animation: spin 2.4s linear infinite;
+  }
+}
+
+/* Sliders: a rounded track filled in gold exactly to the knob's centre (--share, 0–1, set in app.js) and a
+   record for a knob that rolls as it moves (--turn), growing a little under the pointer. */
+input[type="range"] {
+  --share: 0;
+  --turn: 0;
+  --thumb: 20px;
+  --grab: 1;
+  height: 26px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+input[type="range"]:hover:not(:disabled) { --grab: 1.12; }
+input[type="range"]:active:not(:disabled) { --grab: 1.2; cursor: grabbing; }
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+  /* The knob travels the track minus its own width, so the fill ends at half a knob plus that share. */
+  background: linear-gradient(90deg, var(--gold) 0 calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--share)), var(--espresso-line) 0);
+}
+input[type="range"]::-webkit-slider-thumb {
+  width: var(--thumb);
+  height: var(--thumb);
+  margin-top: calc((8px - var(--thumb)) / 2);
+  border: 2px solid var(--gold);
+  border-radius: 50%;
+  background: var(--knob);
+  transform: rotate(calc(var(--turn) * 1turn)) scale(var(--grab));
+  transition: transform 0.15s ease-out;
+  -webkit-appearance: none;
+}
+input[type="range"]::-moz-range-track { height: 8px; border-radius: 999px; background: var(--espresso-line); }
+input[type="range"]::-moz-range-progress { height: 8px; border-radius: 999px; background: var(--gold); }
+input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border: 2px solid var(--gold); border-radius: 50%; background: var(--knob); transform: rotate(calc(var(--turn) * 1turn)) scale(var(--grab)); transition: transform 0.15s ease-out; }
+input[type="range"]:focus-visible { outline: none; }
+input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--on-dark); outline-offset: 2px; }
+input[type="range"]:focus-visible::-moz-range-thumb { outline: 2px solid var(--on-dark); outline-offset: 2px; }
+input[type="range"]:disabled { opacity: 0.5; cursor: default; }
+
+/* The switch's knob is a record that rolls across. */
+.switch { position: relative; display: inline-block; flex: none; width: 50px; height: 28px; }
+.switch input { position: absolute; inset: 0; z-index: 1; margin: 0; opacity: 0; cursor: pointer; }
+.switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--edge); transition: background-color 0.3s; }
+.switch span::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--mini-disc);
+  transition: transform 0.55s var(--ease);
+}
+.switch input:checked + span { background: var(--gold); }
+.switch input:checked + span::after { transform: translateX(22px) rotate(1turn); }
+.switch input:focus-visible + span { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* ---------- page frame ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1400px;
+  height: var(--topbar);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+  animation: fade 0.6s ease-out both;
+}
+.brand { display: flex; align-items: center; gap: 10px; font: 700 25px/1 var(--font-display); font-stretch: condensed; }
+.logo { flex: none; width: 32px; height: 32px; }
+.logo .tile { fill: var(--espresso); }
+.logo .bar { fill: var(--gold); transform-box: fill-box; transform-origin: 50% 100%; animation: bounce 0.9s ease-in-out infinite alternate paused; }
+.logo .bar:nth-of-type(3) { animation-delay: -0.35s; }
+.logo .bar:nth-of-type(4) { animation-delay: -0.7s; }
+.logo .bar:nth-of-type(5) { animation-delay: -0.2s; }
+body:has(#play[data-playing="true"]) .logo .bar { animation-play-state: running; }
+main { max-width: 1400px; margin: 0 auto; padding: 0 var(--gutter) var(--gutter); }
+.sheet { color-scheme: dark; border-radius: 24px; background: var(--espresso); color: var(--on-dark); }
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: #f7d9cf;
+  color: #8a2b17;
+  animation: drop 0.4s var(--ease);
+}
+.notice[data-tone="info"] { background: var(--cream-deep); color: var(--ink); }
+.notice span { flex: 1; }
+.notice .x { padding: 0 4px; border: 0; background: none; color: inherit; font-size: 20px; line-height: 1; }
+
+/* ---------- app: three espresso panels on the cream page ---------- */
+.app { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 30%); align-items: start; gap: var(--gutter); }
+.stage { display: grid; align-content: start; gap: 22px; min-width: 0; }
+
+.now { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 26px; padding: 20px 24px; animation: rise 0.6s var(--ease) 0.05s both; }
+.now-body { display: grid; align-content: start; gap: 8px; min-width: 0; }
+.title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-family: var(--font-headline);
+  font-size: clamp(32px, 2.9vw, 48px);
+  font-weight: 600;
+  font-variation-settings: var(--headline-axes);
+  letter-spacing: -0.01em;
+  line-height: 1.02;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.artist { overflow: hidden; color: var(--on-dark-muted); font-size: 18px; white-space: nowrap; text-overflow: ellipsis; }
+.badge {
+  --icon: var(--i-mic);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  padding: 3px 12px 3px 10px;
+  border-radius: 999px;
+  background: rgb(244 235 219 / 0.1);
+  color: #d9ccb8;
+  font: 600 14px/1.4 var(--font-small);
+  animation: pop 0.45s var(--ease) 0.6s both;
+}
+.badge::before { content: ""; flex: none; width: 15px; height: 15px; background: currentColor; -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
+.badge[data-kind="inst"] { --icon: var(--i-note); background: rgb(110 190 120 / 0.18); color: #a8ddb0; }
+.badge[data-kind="ai"] { --icon: var(--i-mic-off); background: rgb(229 174 61 / 0.2); color: #f2c76b; }
+.badge[data-kind="live"] { --icon: var(--i-mic-off); background: rgb(236 140 60 / 0.2); color: #f4b07a; }
+
+.seekrow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-top: 6px; }
+.seek { width: 100%; }
+.time { min-width: 4ch; color: var(--on-dark-muted); font: 500 15px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.time:last-child { text-align: right; }
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+.controls { display: flex; align-items: center; gap: 6px; }
+.icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--on-dark);
+  transition: background-color 0.2s, translate 0.15s, scale 0.15s;
+}
+.icon:hover:not(:disabled) { background: rgb(244 235 219 / 0.08); }
+#prev:active:not(:disabled) { translate: -3px 0; }
+#next:active:not(:disabled) { translate: 3px 0; }
+.icon svg { width: 22px; height: 22px; fill: currentColor; }
+.icon.play { width: 56px; height: 56px; background: var(--gold); color: var(--espresso); }
+.icon.play:hover:not(:disabled) { background: var(--gold-hover); scale: 1.06; }
+.icon.play:active:not(:disabled) { background: var(--gold-press); scale: 0.94; }
+.icon.play svg { width: 26px; height: 26px; animation: icon-in 0.35s var(--ease); }
+.volume { display: flex; align-items: center; gap: 8px; width: 170px; color: var(--on-dark-muted); }
+.volume svg { flex: none; width: 20px; height: 20px; fill: currentColor; }
+.volume input { flex: 1; min-width: 0; }
+/* Playing on another device (or the in-app player still connecting): where, and a button to bring it here. */
+.device { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--on-dark-muted); font: 14px/1.4 var(--font-small); animation: rise 0.4s var(--ease) both; }
+.device svg { flex: none; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.device span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+.desk { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px 32px; padding: 22px 24px; animation: rise 0.6s var(--ease) 0.16s both; }
+.desk-col { display: grid; align-content: start; gap: 10px; min-width: 0; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.row h2 + .hint { margin-top: 3px; }
+.match { min-height: 3em; }
+.field-label { margin-top: 4px; color: var(--on-dark-muted); font: 14px/1.4 var(--font-small); }
+.eq { display: none; align-items: flex-end; gap: 2px; height: 14px; margin-left: 10px; }
+[data-running="true"] .eq { display: inline-flex; }
+.eq i { width: 3px; height: 100%; border-radius: 2px; background: var(--gold); transform-origin: 50% 100%; animation: bounce 0.8s ease-in-out infinite alternate; }
+.eq i:nth-child(2) { animation-delay: -0.3s; }
+.eq i:nth-child(3) { animation-delay: -0.55s; }
+/* AI | Fast: a gold pill slides to the chosen side. */
+.segmented { position: relative; isolation: isolate; display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid var(--edge); border-radius: 999px; background: var(--espresso-raise); }
+.segmented::before { content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; z-index: -1; width: calc(50% - 3px); border-radius: 999px; background: var(--gold); transition: translate 0.4s var(--ease); }
+.segmented:has(#qualityFast:checked)::before { translate: 100% 0; }
+.segmented:not(:has(input:checked))::before { opacity: 0; } /* no pill until one side is chosen */
+.segmented label { position: relative; }
+.segmented input { position: absolute; inset: 0; z-index: 1; margin: 0; opacity: 0; cursor: pointer; }
+.segmented span { display: block; padding: 5px 12px; border-radius: 999px; color: var(--on-dark-muted); font-size: 15px; font-weight: 600; text-align: center; transition: color 0.3s; }
+.segmented input:checked + span { color: var(--espresso); }
+.segmented input:focus-visible + span { outline: 2px solid var(--gold); outline-offset: 2px; }
+.segmented input:disabled + span { opacity: 0.45; }
+.model .hint { flex: 1; }
+.strength { display: grid; grid-template-columns: auto minmax(0, 1fr) 4ch; align-items: center; gap: 12px; color: var(--on-dark-muted); font: 14px/1.4 var(--font-small); }
+.strength input { width: 100%; }
+output { color: var(--on-dark); font: 500 15px/1 var(--font-display); font-variant-numeric: tabular-nums; text-align: right; }
+
+.search { padding: 16px; animation: rise 0.6s var(--ease) 0.26s both; }
+.search input { width: 100%; min-height: 46px; padding: 0 14px 0 44px; background: var(--espresso-raise) var(--magnifier) no-repeat 15px 50% / 18px; }
+.results { display: grid; align-content: start; gap: 2px; margin: 12px 0 0; padding: 0; list-style: none; }
+.results li { animation: rise 0.45s var(--ease) both; }
+.results li:nth-child(2) { animation-delay: 0.04s; }
+.results li:nth-child(3) { animation-delay: 0.08s; }
+.results li:nth-child(4) { animation-delay: 0.12s; }
+.results li:nth-child(5) { animation-delay: 0.16s; }
+.results li:nth-child(6) { animation-delay: 0.2s; }
+.results li:nth-child(7) { animation-delay: 0.24s; }
+.results li:nth-child(8) { animation-delay: 0.28s; }
+.results li:nth-child(9) { animation-delay: 0.32s; }
+.results li:nth-child(10) { animation-delay: 0.36s; }
+.result {
+  position: relative;
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  transition: background-color 0.2s;
+}
+.result::before { /* a play mark over the cover */
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: rgb(22 17 13 / 0.55) var(--i-play) center / 18px no-repeat;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.result::after { /* and a record sliding out from behind it */
+  content: "";
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--mini-disc);
+  transition: translate 0.45s var(--ease), rotate 0.45s var(--ease);
+}
+.result:hover, .result:focus-visible { background: var(--espresso-raise); }
+.result:hover::before, .result:focus-visible::before { opacity: 1; }
+.result:hover::after, .result:focus-visible::after { translate: 16px 0; rotate: 200deg; }
+.result img { position: relative; z-index: 1; width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: var(--espresso-raise); outline: 1px solid rgb(244 235 219 / 0.1); outline-offset: -1px; }
+.result .text { display: grid; min-width: 0; }
+.result .name { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 600; }
+.result .name > span:first-child, .result .sub { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.result .sub { color: var(--on-dark-muted); font: 14px/1.4 var(--font-small); }
+.result .len { color: var(--on-dark-muted); font: 500 14px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.chip { flex: none; padding: 1px 8px; border-radius: 999px; background: rgb(110 190 120 / 0.18); color: #a8ddb0; font: 600 13px/1.5 var(--font-small); }
+.empty { padding: 32px 16px; color: var(--on-dark-muted); text-align: center; text-wrap: balance; }
+
+/* Laptop: the controls sit right under the player, and the search panel is exactly as tall as the two of them
+   (contain: size stops a long result list from stretching the row), scrolling its results inside. The album
+   art grows with the screen's height, leaving room for the controls, so tall screens get used without gaps. */
+@media (min-width: 1080px) {
+  .app { align-items: stretch; }
+  .now .deck { --art: clamp(170px, min(19vw, 100dvh - 400px), 380px); }
+  .search { display: flex; flex-direction: column; contain: size; }
+  .results { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #6b5440 transparent; }
+}
+@media (min-width: 720px) {
+  .live { padding-left: 32px; border-left: 1px solid var(--espresso-line); }
+}
+@media (max-width: 1079px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 899px) {
+  .login { grid-template-columns: minmax(0, 1fr); gap: 32px; min-height: 0; padding-top: 24px; }
+  body:has(#loginView:not([hidden])) .album-wall::after { background: rgb(244 235 219 / 0.86); } /* the words sit over the wall here */
+}
+@media (max-width: 719px) {
+  :root { --gutter: 16px; }
+  .now { gap: 16px; padding: 16px; }
+  .now .deck { --art: 104px; width: var(--art); }
+  .now :is(.platter, .record, .tonearm, .arm-rest, .cue-time) { display: none; }
+  .title { font-size: 30px; }
+}
+
+/* ---------- motion ---------- */
+@keyframes fade { from { opacity: 0; } }
+@keyframes guide-in { from { opacity: 0; translate: 0 24px; scale: 0.98; } }
+@keyframes step-in { from { opacity: 0; translate: 24px 0; } }
+@keyframes step-back { from { opacity: 0; translate: -24px 0; } }
+@keyframes point {
+  0% { opacity: 0; translate: -150px 70px; }
+  12% { opacity: 1; }
+  40% { translate: 0 0; scale: 1; }
+  46% { translate: 0 0; scale: 0.8; } /* the click */
+  52% { translate: 0 0; scale: 1; }
+  85% { opacity: 1; }
+  100% { opacity: 0; translate: 0 0; }
+}
+@keyframes ripple { 0%, 44% { opacity: 0; scale: 0.8; } 48% { opacity: 1; scale: 1; } 70%, 100% { opacity: 0; scale: 1.25; } }
+@keyframes type { 0%, 50% { width: 0; } 80%, 100% { width: calc(var(--n) * 1ch); } }
+@keyframes tick { 0%, 40% { scale: 0; } 48%, 100% { scale: 1; } }
+@keyframes rise { from { opacity: 0; translate: 0 16px; } }
+@keyframes drop { from { opacity: 0; translate: 0 -10px; } }
+@keyframes pop { from { opacity: 0; scale: 0.6; } }
+@keyframes sleeve-in { from { opacity: 0; translate: -28px 0; } }
+@keyframes roll-out { from { opacity: 0; translate: -48% 0; rotate: -280deg; } 30% { opacity: 1; } }
+@keyframes spin { to { rotate: 1turn; } }
+@keyframes bounce { from { scale: 1 0.3; } }
+@keyframes icon-in { from { opacity: 0; scale: 0.4; rotate: -90deg; } }
+
+/* ---------- companion window ---------- */
+body.engine {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  min-height: 100vh;
+  padding: 20px;
+  text-align: center;
+}
+body.engine img { border-radius: 12px; }
+body.engine h1 { font-size: 22px; font-weight: 600; }
+body.engine p { max-width: 300px; color: var(--ink-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* ---------- the Sound panel: styles to tap through, then a slider per control to fine-tune ---------- */
+.sound-open { justify-self: start; }
+.sound-open b { margin-left: 4px; color: var(--gold); font-weight: 600; }
+.sound {
+  width: min(780px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  padding: 24px 26px 28px;
+  overflow: auto;
+  border: 0;
+  border-radius: 28px;
+  background: var(--espresso);
+  color: var(--on-dark);
+  color-scheme: dark;
+}
+.sound[open] { display: grid; gap: 12px; animation: guide-in 0.5s var(--ease); }
+.sound::backdrop { background: rgb(34 25 17 / 0.6); animation: fade 0.3s ease-out; }
+.sound .hint { margin: 4px 0 0; color: var(--on-dark-muted); }
+.sound .ghost { --wipe: var(--espresso-raise); border-color: var(--edge); color: var(--on-dark); }
+.sound-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.sound-head:first-child { align-items: start; }
+.sound h2 { margin: 0; }
+.sound-sub { margin: 8px 0 0; color: var(--on-dark-muted); font: 600 12px/1.2 var(--font-small); letter-spacing: 0.08em; text-transform: uppercase; }
+.sound-styles { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 8px; }
+.sound-style {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-height: 76px;
+  padding: 11px 13px;
+  border: 1px solid var(--espresso-line);
+  border-radius: 14px;
+  background: var(--espresso-raise);
+  color: var(--on-dark);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.25s var(--ease);
+}
+.sound-style b { font-size: 15px; font-weight: 600; }
+.sound-style span { color: var(--on-dark-muted); font-size: 13px; line-height: 1.35; }
+.sound-style:hover { border-color: var(--edge); transform: translateY(-2px); }
+.sound-style:active { transform: scale(0.98); }
+.sound-style[aria-pressed="true"] { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+.sound-style[aria-pressed="true"] b { color: var(--gold); }
+.sound-sliders { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px 30px; }
+.sound-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; }
+.sound-control .name { font-weight: 600; }
+.sound-control output { color: var(--gold); font-size: 14px; font-variant-numeric: tabular-nums; }
+.sound-control .what { grid-column: 1 / -1; color: var(--on-dark-muted); font-size: 13px; }
+.sound-control input { grid-column: 1 / -1; width: 100%; margin-top: 4px; }
+@media (prefers-reduced-motion: reduce) { .sound[open], .sound::backdrop { animation: none; } .sound-style { transition: none; } }
+
+/* the YouTube Music connector's links, with its icon */
+.yt-link { display: inline-flex; align-items: center; gap: 6px; }
+.yt-link img { flex: none; width: 16px; height: 16px; }
