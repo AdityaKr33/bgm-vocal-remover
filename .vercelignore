@@ -1,0 +1,11 @@
+# Not part of the website: kept out of the Vercel deployment, so they answer 404.
+# Written by tools/host-config.mjs from its PRIVATE list; edit the list there, not here.
+serve.mjs
+security-headers.mjs
+package.json
+README.md
+netlify.toml
+.gitignore
+.vercelignore
+tests/
+tools/

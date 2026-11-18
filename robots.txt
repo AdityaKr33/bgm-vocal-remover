@@ -8,4 +8,4 @@ Disallow: /tools/
 Disallow: /models/
 
 # SET YOUR DOMAIN: run `node tools/set-domain.mjs https://your-site.example` once after deploying.
-Sitemap: https://bgm-mode.example/sitemap.xml
+Sitemap: https://bgm-vocal-remover.vercel.app/sitemap.xml

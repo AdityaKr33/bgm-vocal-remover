@@ -74,19 +74,25 @@ maths, the delay budget, the frame pacing, the offline flow and the security lay
 
 ## Put it online
 
-It is plain files, so any static host will do; `netlify.toml` holds the settings for Netlify.
+It runs at **https://bgm-vocal-remover.vercel.app**. It is plain files, so any static host will do:
+`vercel.json` and `.vercelignore` hold the settings for Vercel, `netlify.toml` the same for Netlify.
 
-1. Connect the repository in Netlify (no build command). Every push to `main` redeploys.
-2. Point the pages at your address, once:
+1. Connect the repository to the host (no build command). Every push to `main` redeploys.
+2. Point the pages at the address, once:
 
    ```bash
-   node tools/set-domain.mjs https://your-site.netlify.app
+   node tools/set-domain.mjs https://bgm-vocal-remover.vercel.app
    ```
 
-   That rewrites the canonical links, the Open Graph tags, `sitemap.xml` and the `Sitemap:` line in
-   `robots.txt`. Run it again whenever the address changes, then commit the result.
+   That rewrites the canonical links, the Open Graph tags (making the share image absolute, which
+   link previews need), `sitemap.xml` and the `Sitemap:` line in `robots.txt`, and nothing else.
+   Run it again if the address changes, then commit the result.
 3. Add the site in [Google Search Console](https://search.google.com/search-console) and submit
-   `https://your-site/sitemap.xml`.
+   `https://bgm-vocal-remover.vercel.app/sitemap.xml`.
+
+The headers live in one place, `security-headers.mjs`. After changing them, run
+`node tools/host-config.mjs` to rewrite `vercel.json`, `.vercelignore` and `netlify.toml` to match;
+`npm test` fails if any of them drifts.
 
 ### Paying for itself
 

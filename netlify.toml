@@ -1,11 +1,7 @@
-# Netlify: this site is plain files, with no build step. Connect the repository and every push to main
-# redeploys. The AI model isn't hosted here; the first time a visitor chooses AI, their own browser fetches
-# it from Hugging Face and checks its SHA-256 (src/ai-model.js).
+# Netlify: plain files, no build step. Written by tools/host-config.mjs from security-headers.mjs.
 [build]
   publish = "."
 
-# The same headers the local server sends (security-headers.mjs; tests/security.test.mjs keeps them identical),
-# plus HTTPS-only, which the local http://127.0.0.1 copy can't use.
 [[headers]]
   for = "/*"
   [headers.values]
@@ -18,7 +14,6 @@
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), display-capture=(self)"
     Strict-Transport-Security = "max-age=31536000"
 
-# Pretty addresses: /guide and /privacy as well as /guide.html and /privacy.html.
 [[redirects]]
   from = "/guide"
   to = "/guide.html"
@@ -28,19 +23,6 @@
   from = "/privacy"
   to = "/privacy.html"
   status = 200
-
-# The project's own files are not part of the website.
-[[redirects]]
-  from = "/tests/*"
-  to = "/404.html"
-  status = 404
-  force = true
-
-[[redirects]]
-  from = "/tools/*"
-  to = "/404.html"
-  status = 404
-  force = true
 
 [[redirects]]
   from = "/serve.mjs"
@@ -73,7 +55,31 @@
   force = true
 
 [[redirects]]
+  from = "/vercel.json"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
   from = "/.gitignore"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/.vercelignore"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/tests/*"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/tools/*"
   to = "/404.html"
   status = 404
   force = true

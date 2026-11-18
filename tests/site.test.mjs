@@ -89,6 +89,36 @@ test('the pages carry no inline script, which is why none is allowed', () => {
   }
 });
 
+test('vercel.json sends exactly the same headers on every response', () => {
+  // On Vercel, netlify.toml means nothing: without this file the site goes out with no policy at all.
+  const vercel = JSON.parse(read('vercel.json'));
+  const all = vercel.headers.find((rule) => rule.source === '/(.*)');
+  assert.ok(all, 'vercel.json has no rule for every path');
+  const sent = Object.fromEntries(all.headers.map(({ key, value }) => [key, value]));
+  assert.deepEqual(sent, { ...SECURITY_HEADERS }, 'vercel.json and security-headers.mjs disagree');
+});
+
+test("the project's own files are kept out of the Vercel deployment", () => {
+  // Vercel serves every file in the repository unless told otherwise, so these would all answer 200.
+  const ignored = read('.vercelignore').split('\n').map((line) => line.trim()).filter((line) => line && !line.startsWith('#'));
+  for (const path of ['serve.mjs', 'security-headers.mjs', 'netlify.toml', 'package.json', 'README.md', 'tests/', 'tools/']) {
+    assert.ok(ignored.includes(path), `.vercelignore does not keep out ${path}`);
+  }
+  for (const page of ['index.html', 'guide.html', 'privacy.html', 'engine.html', '404.html', 'sw.js', 'src/', 'robots.txt', 'sitemap.xml']) {
+    assert.ok(!ignored.includes(page), `.vercelignore would hide ${page}, which is part of the site`);
+  }
+});
+
+test('every address in the sitemap is one both hosts can serve', () => {
+  const vercel = JSON.parse(read('vercel.json'));
+  const toml = read('netlify.toml');
+  for (const [, path] of read('sitemap.xml').matchAll(/<loc>https:\/\/[^/]+(\/[^<]*)<\/loc>/g)) {
+    if (path === '/') continue;
+    assert.ok(vercel.rewrites.some((rule) => rule.source === path), `Vercel would answer 404 for ${path}`);
+    assert.ok(toml.includes(`from = "${path}"`), `Netlify would answer 404 for ${path}`);
+  }
+});
+
 test('netlify.toml repeats the headers exactly', () => {
   const toml = read('netlify.toml');
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
